@@ -7,6 +7,8 @@
 #else
 #include "multirom.h"
 #include "multimenu.h"
+// For 16 MB Flash IC
+//#include "multimenu_20slots.h"
 #endif
 
 #include "hardware/clocks.h"
@@ -27,6 +29,7 @@
 #include "lale_512k.pio.h"
 
 #define DELAY 100000
+#define ROMSIZE 524288
 
 #else
 #include "lale.pio.h"
@@ -212,11 +215,7 @@ void __not_in_flash_func( doPIOStuff() ) {
   }
   
   uint32_t romAddress = (uint32_t) rom;
-  
-  if ( writeData ) {
-    // Slot 2
-    romAddress |= 0b10000000000000000000;
-  }
+  romAddress += (ROMSIZE * writeData);
   
   // Stop the LALE SM.
   pio_sm_set_enabled( pio, sm_lale, false );
