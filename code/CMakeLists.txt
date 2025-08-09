@@ -15,6 +15,9 @@ pico_sdk_init()
 
 add_compile_options( -Ofast -Wall )
 
+# For boards with crystals which take a bit longer to stablize.
+add_compile_definitions(PICO_XOSC_STARTUP_DELAY_MULTIPLIER=64)
+
 add_executable(${PROJECT})
 
 pico_set_linker_script(${PROJECT} ${CMAKE_CURRENT_SOURCE_DIR}/memmap.ld)
