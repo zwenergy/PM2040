@@ -1,18 +1,17 @@
-#define MULTICART
+// This is a simple proof of concept for a program running on the RP2040
+// and creating the actual display data for the Pokemon mini.
+// The program contained in "rpfb.h" runs on the Pokemon mini and pulls
+// the data from the "RP2040 framebuffer" into the LCD controller
+// GDRAM. After this copying, the Pokemon mini gets the button states
+// and sends it over to the RP2040 cart (at the address 0x5000).
+// No sound for now. The PM program copies the frame buffer at a rate of
+// 32 Hz.
 
 #include "pico/stdlib.h"
+#include <string.h>
 
-#ifndef MULTICART
-#include "rom.h"
-#else
-#include "multirom.h"
-#include "multimenu.h"
-// For 16 MB Flash IC
-//#include "multimenu_20slots.h"
-#endif
-
+#include "rpfb.h"
 #include "hardware/clocks.h"
-
 #include "hardware/vreg.h"
 
 #include "hardware/pio.h"
@@ -21,20 +20,13 @@
 #include "oe.pio.h"
 #include "pushData.pio.h"
 #include "hale.pio.h"
+#include "lale.pio.h"
 
-#ifdef MULTICART
 #include "writecheck.pio.h"
 #include "writecheck_addr.pio.h"
-#include "lale_menu.pio.h"
-#include "lale_512k.pio.h"
 
-#define DELAY 100000
-#define ROMSIZE 524288
-
-#else
-#include "lale.pio.h"
-#endif
-
+// Packed framebuffer (which is copied from the cart)
+#define FBOFFSET 0x4000
 
 // We don't use the Flash cache.
 #define XIP_CACHE   0x10000000
@@ -69,6 +61,170 @@
 #define OE 14
 #define CS 15
 
+#define DWIDTH 96
+#define DHEIGHT 64
+
+#define PADDLEW 4
+#define PADDLEH 13
+
+#define PADDLE1X 3
+#define PADDLE1Y ( ( DHEIGHT / 2 ) - ( PADDLEH /2 ) )
+#define PADDLE2X ( DWIDTH - PADDLEW - 1 )
+#define BALLW 3
+#define BALLX ( ( DWIDTH / 2 ) - ( BALLW / 2 ) )
+#define BALLY ( ( DHEIGHT / 2 ) - ( BALLW / 2 ) )
+
+
+// "Unpacked" framebuffer
+uint8_t fbFull[ 96 * 64];
+
+void __not_in_flash_func( drawRectangle )( unsigned int x, unsigned int y, 
+  unsigned int lenX, unsigned int lenY ) {
+  for ( unsigned int xi = x; xi < x + lenX; ++xi ) {
+    fbFull[ xi + DWIDTH * y ] = 1;
+    fbFull[ xi + DWIDTH * ( y + lenY - 1) ] = 1;
+  }
+  
+  for ( unsigned int yi = y; yi < y + lenY; ++yi ) {
+    fbFull[ x + DWIDTH * yi ] = 1;
+    fbFull[ x + lenX - 1 + DWIDTH * yi ] = 1;
+  }
+}
+
+// Actual program running and filling the FB.
+void __not_in_flash_func( fbApp )( PIO wrPIO, uint sm_we, uint sm_we_addr ) {
+  // Frame buffer setup.
+  uint8_t* fb = rom + FBOFFSET;
+
+  uint32_t keys = 0;
+  
+  // Paddle pos.
+  uint32_t p1y = PADDLE1Y;
+  uint32_t p2y = PADDLE1Y;
+  
+  // Ballpos.
+  int32_t bx = BALLX;
+  int32_t by = BALLY;
+  
+  // Ball movement.
+  int32_t bspeedX = 1;
+  int32_t bspeedY = 1;
+  
+  while ( 1 ) {
+    
+    // Scan keys.
+    if ( keys & 0b00001000 ) {
+      // Up.
+      if ( p1y > 0 ) {
+        --p1y;
+      }
+    }
+    
+    if ( keys & 0b00010000 ) {
+      // Down.
+      if ( p1y < ( 63 - PADDLEH ) ) {
+        ++p1y;
+      }
+    }
+    
+    if ( keys & 0b00000100 ) {
+      // C.
+      if ( p2y > 0 ) {
+        --p2y;
+      }
+    }
+    
+    if ( keys & 0b00000001 ) {
+      // A.
+      if ( p2y < ( 63 - PADDLEH ) ) {
+        ++p2y;
+      }
+    }
+    
+    // Move the ball.
+    int32_t potX = bx + bspeedX;
+    int32_t potY = by + bspeedY;
+    
+    if ( potY < DHEIGHT - BALLW &&
+         potY >= 0 ) {
+      by = potY;
+      
+    } else {
+      bspeedY = -bspeedY;
+    }
+    
+    if ( potX <= PADDLE1X + PADDLEW && bspeedX < 0 ) {
+      // Collision?
+      if ( potY >= p1y && potY < p1y + PADDLEH ) {
+        bspeedX = -bspeedX;
+        
+      } else if ( potX <= PADDLEW ) {
+        bx = BALLX;
+        by = BALLY;
+        
+      } else {
+        bx = potX;
+      }
+      
+    } else if ( potX >= PADDLE2X - BALLW && bspeedX > 0 ) {
+      // Collision?
+      if ( potY >= p2y && potY < p2y + PADDLEH ) {
+        bspeedX = -bspeedX;
+        
+      } else if ( potX >= PADDLE2X + PADDLEW ) {
+        bx = BALLX;
+        by = BALLY;
+        
+      } else {
+        bx = potX;
+      }
+      
+    } else {
+      bx = potX;
+    }
+    
+    
+    // Start from scratch.
+    memset( fbFull, 0, DWIDTH * DHEIGHT );
+    
+    // Draw players.
+    drawRectangle( PADDLE1X, p1y, PADDLEW, PADDLEH );
+    drawRectangle( PADDLE2X, p2y, PADDLEW, PADDLEH );
+    drawRectangle( bx, by, BALLW, BALLW );
+    
+    // Transform full frameBuffer.
+    for ( unsigned int y = 0; y < 8; ++y ) {
+      for ( unsigned int x = 0; x < 96; ++x ) {
+        unsigned tmp = 0;
+        for ( unsigned int i = 0; i < 8; ++i ) {
+          tmp |= ( fbFull[ x + y * 96 * 8 + i * 96 ] & 1 ) << i;
+        }
+        
+        fb[ x + y * 96 ] = tmp;
+      }
+    }
+    
+    // The cart sends the current keys directly after copying the frame buffer.
+    // We can use that for syncing.
+    
+    uint32_t addrData;
+    while ( 1 ) {
+      if ( !pio_sm_is_rx_fifo_empty( wrPIO, sm_we ) ) {
+        // Got a write. Right lower address?
+        keys = pio_sm_get( wrPIO, sm_we );
+        addrData = pio_sm_get( wrPIO, sm_we_addr );
+        
+        if ( addrData == 0x000 ) {
+          // Fitting lower address.
+          break;
+        }
+        
+      }
+    }
+    
+  }
+}
+
 void __not_in_flash_func( doPIOStuff() ) {
   // Set up PIOs.
   
@@ -87,11 +243,7 @@ void __not_in_flash_func( doPIOStuff() ) {
   
   // LALE latching.
   uint sm_lale = pio_claim_unused_sm( pio, false );
-  #ifndef MULTICART
   uint offset_lale = pio_add_program( pio, &lale_latch_program );
-  #else
-  uint offset_lale = pio_add_program( pio, &lale_latch_menu_program );
-  #endif
   
   
   // Create DMAs.
@@ -170,21 +322,11 @@ void __not_in_flash_func( doPIOStuff() ) {
   #endif
   
   // Push the base address of the array.
-  #ifndef MULTICART
-  pio_sm_put( pio, sm_lale, ( ( (uint32_t) rom + XIP_NOCACHE_OFFSET ) ) >> 20 );
-  #else
-  pio_sm_put( pio, sm_lale, ( ( (uint32_t) rom_menu + XIP_NOCACHE_OFFSET ) ) >> 14 );
-  #endif
+  pio_sm_put( pio, sm_lale, ( ( (uint32_t) rom ) ) >> 15 );
   
   // Start the DMA channels.
   dma_start_channel_mask( 1u << hale_dma );
   dma_start_channel_mask( 1u << lale_addr_dma );
-
-  #ifdef MULTICART
-  // Wait a bit.
-  for ( uint32_t cnt = 0; cnt < DELAY; ++cnt ) {
-    tight_loop_contents();
-  }
 
   // Now also start the write check PIO.
   PIO pioWE = pio1;
@@ -196,52 +338,9 @@ void __not_in_flash_func( doPIOStuff() ) {
   uint sm_we_addr = pio_claim_unused_sm( pioWE, false );
   uint offset_we_addr = pio_add_program( pioWE, &write_check_addr_program );
   write_check_addr_program_init( pioWE, sm_we_addr, offset_we_addr, A0A10, WE );
-  
-  // Wait till proper write.
-  uint32_t writeData;
-  uint32_t addrData;
-  while ( 1 ) {
-    if ( !pio_sm_is_rx_fifo_empty( pioWE, sm_we ) ) {
-      // Got a write. Right lower address?
-      writeData = pio_sm_get( pioWE, sm_we );
-      addrData = pio_sm_get( pioWE, sm_we_addr );
-      
-      if ( addrData == 0x3FF ) {
-        // Fitting lower address.
-        break;
-      }
-      
-    }
-  }
-  
-  uint32_t romAddress = (uint32_t) rom;
-  romAddress += (ROMSIZE * writeData);
-  
-  // Stop the LALE SM.
-  pio_sm_set_enabled( pio, sm_lale, false );
-  
-  // Remove the old program.
-  pio_remove_program( pio, &lale_latch_menu_program, offset_lale );
-  
-  // Add the new program at the same offset.
-  pio_add_program_at_offset( pio, &lale_latch_program, offset_lale );
-  
-  // Restart the LALE SM.
-  lale_latch_program_init( pio, sm_lale, offset_lale, A0A10, LALE );
-  
-  // Add the new ROM address.
-  pio_sm_put( pio, sm_lale, ( ( romAddress + XIP_NOCACHE_OFFSET ) ) >> 19 );
-  
-  // Stop WE checking SMs.
-  pio_sm_set_enabled( pioWE, sm_we, false );
-  pio_sm_set_enabled( pioWE, sm_we_addr, false );
-  #endif
 
-  
-  // Do nothing.
-  while ( 1 ) {
-    tight_loop_contents();
-  }
+  // Execute the code which handles the framebuffer.
+  fbApp( pioWE, sm_we, sm_we_addr );
 }
 
 int main() {
