@@ -4,8 +4,7 @@
 // the data from the "RP2040 framebuffer" into the LCD controller
 // GDRAM. After this copying, the Pokemon mini gets the button states
 // and sends it over to the RP2040 cart (at the address 0x5000).
-// No sound for now. The PM program copies the frame buffer at a rate of
-// 32 Hz.
+// No sound for now.
 
 #include "pico/stdlib.h"
 #include <string.h>
@@ -17,6 +16,8 @@
 #include "hardware/pio.h"
 #include "hardware/dma.h"
 
+#include "pico/multicore.h"
+
 #include "oe.pio.h"
 #include "pushData.pio.h"
 #include "hale.pio.h"
@@ -27,6 +28,60 @@
 
 // Packed framebuffer (which is copied from the cart)
 #define FBOFFSET 0x4000
+
+// Rumble address
+#define RUMBLE (rom + 0x4300)
+
+// Rumble on.
+#define RUMBLEON *( (volatile uint8_t*) RUMBLE ) = 1
+
+// Rumble off.
+#define RUMBLEOFF *( (volatile uint8_t*) RUMBLE ) = 0
+
+// FRAMEBLEND defines the number of colors and the number of frames
+// blended together to create these colors.
+// FRAMEBLEND == 0: B/W, 2 colors, no frames being blended.
+// FRAMEBLEND == 1: 3 colors, 2 frames being blended.
+// etc.
+// The PM display refreshes at roughly 75 Hz, FRAMEBLEND == 1 will reduce
+// this effectively to the half and so on.
+#define FRAMEBLEND 1
+volatile unsigned frameBlendCnt = 0;
+
+// PIO-related variables.
+PIO pioWE_g;
+uint sm_we_g, sm_we_addr_g;
+
+// PM buttons.
+volatile uint32_t pmKeys = 0;
+
+// PM FRAME DONE notify. Is set to 1 when a "complete" frame including
+// frame blending was drawn.
+volatile uint32_t frameDone = 0;
+
+// TRIPLEFB enables triple frame buffer to avoid screen tearing.
+// The "frameDone" notify can also be used to sync to reduce latency 
+// and do not use the triple FB.
+#define TRIPLEFB
+
+#ifdef TRIPLEFB
+#define FBDEPTH 3
+volatile uint32_t readPtr = 0;
+volatile uint32_t writePtr = 1;
+uint64_t frameTimeUS = 26667;
+#else
+#define FBDEPTH 1
+#endif
+
+// "Unpacked" framebuffer
+uint8_t fbFull[ FBDEPTH ][ 96 * 64];
+
+
+//////// PM2040 FB COPY SPECIFIC STUFF END //////////////
+
+
+// Rumble frames.
+#define RUMBLEFRAMES 5
 
 // We don't use the Flash cache.
 #define XIP_CACHE   0x10000000
@@ -74,30 +129,45 @@
 #define BALLX ( ( DWIDTH / 2 ) - ( BALLW / 2 ) )
 #define BALLY ( ( DHEIGHT / 2 ) - ( BALLW / 2 ) )
 
-
-// "Unpacked" framebuffer
-uint8_t fbFull[ 96 * 64];
-
 void __not_in_flash_func( drawRectangle )( unsigned int x, unsigned int y, 
   unsigned int lenX, unsigned int lenY ) {
-  for ( unsigned int xi = x; xi < x + lenX; ++xi ) {
-    fbFull[ xi + DWIDTH * y ] = 1;
-    fbFull[ xi + DWIDTH * ( y + lenY - 1) ] = 1;
+    
+  uint8_t* curFB;
+  #ifdef TRIPLEFB
+  curFB = ( (uint8_t*) fbFull ) + ( writePtr * 96 * 64 );
+  #else
+  curFB = ( (uint8_t*) fbFull );
+  #endif
+  
+  for ( unsigned int xi = x; xi < x + lenX; ++xi ) {    
+    curFB[ xi + DWIDTH * y ] = 0b11;
+    curFB[ xi + DWIDTH * ( y + lenY - 1) ] = 0b11;
   }
   
   for ( unsigned int yi = y; yi < y + lenY; ++yi ) {
-    fbFull[ x + DWIDTH * yi ] = 1;
-    fbFull[ x + lenX - 1 + DWIDTH * yi ] = 1;
+    curFB[ x + DWIDTH * yi ] = 0b11;
+    curFB[ x + lenX - 1 + DWIDTH * yi ] = 0b11;
   }
 }
 
-// Actual program running and filling the FB.
-void __not_in_flash_func( fbApp )( PIO wrPIO, uint sm_we, uint sm_we_addr ) {
-  // Frame buffer setup.
-  uint8_t* fb = rom + FBOFFSET;
-
-  uint32_t keys = 0;
+void __not_in_flash_func( drawVertLine )( unsigned int x, unsigned int y, 
+  unsigned int len, unsigned int color ) {
+    
+  uint8_t* curFB;
+  #ifdef TRIPLEFB
+  curFB = ( (uint8_t*) fbFull ) + ( writePtr * 96 * 64 );
+  #else
+  curFB = ( (uint8_t*) fbFull );
+  #endif
   
+  for ( unsigned int i = y; i < y + len; ++i ) {
+    curFB[ x + DWIDTH * i ] = color;
+  }
+}
+
+uint32_t rumbleFrames = 0;
+// Actual program running and filling the FB.
+void __not_in_flash_func( doPongify )() {
   // Paddle pos.
   uint32_t p1y = PADDLE1Y;
   uint32_t p2y = PADDLE1Y;
@@ -111,30 +181,42 @@ void __not_in_flash_func( fbApp )( PIO wrPIO, uint sm_we, uint sm_we_addr ) {
   int32_t bspeedY = 1;
   
   while ( 1 ) {
+    #ifdef TRIPLEFB
+    // Time frame.
+    uint64_t frameStart = time_us_64();
+    #endif
+    
+    // Turn rumble off again.
+    if ( rumbleFrames > 0 ) {
+      --rumbleFrames;
+      RUMBLEON;
+    } else {
+      RUMBLEOFF;
+    }
     
     // Scan keys.
-    if ( keys & 0b00001000 ) {
+    if ( pmKeys & 0b00001000 ) {
       // Up.
       if ( p1y > 0 ) {
         --p1y;
       }
     }
     
-    if ( keys & 0b00010000 ) {
+    if ( pmKeys & 0b00010000 ) {
       // Down.
       if ( p1y < ( 63 - PADDLEH ) ) {
         ++p1y;
       }
     }
     
-    if ( keys & 0b00000100 ) {
+    if ( pmKeys & 0b00000100 ) {
       // C.
       if ( p2y > 0 ) {
         --p2y;
       }
     }
     
-    if ( keys & 0b00000001 ) {
+    if ( pmKeys & 0b00000001 ) {
       // A.
       if ( p2y < ( 63 - PADDLEH ) ) {
         ++p2y;
@@ -158,6 +240,10 @@ void __not_in_flash_func( fbApp )( PIO wrPIO, uint sm_we, uint sm_we_addr ) {
       if ( potY >= p1y && potY < p1y + PADDLEH ) {
         bspeedX = -bspeedX;
         
+        // Turn on rumble for one frame.
+        RUMBLEON;
+        rumbleFrames = RUMBLEFRAMES;
+        
       } else if ( potX <= PADDLEW ) {
         bx = BALLX;
         by = BALLY;
@@ -171,6 +257,10 @@ void __not_in_flash_func( fbApp )( PIO wrPIO, uint sm_we, uint sm_we_addr ) {
       if ( potY >= p2y && potY < p2y + PADDLEH ) {
         bspeedX = -bspeedX;
         
+        // Turn on rumble for one frame.
+        RUMBLEON;
+        rumbleFrames = RUMBLEFRAMES;
+        
       } else if ( potX >= PADDLE2X + PADDLEW ) {
         bx = BALLX;
         by = BALLY;
@@ -183,36 +273,118 @@ void __not_in_flash_func( fbApp )( PIO wrPIO, uint sm_we, uint sm_we_addr ) {
       bx = potX;
     }
     
+    #ifdef TRIPLEFB
+    // Advance write pointer?
+    uint32_t nextWritePtr = writePtr + 1;
+    if ( nextWritePtr == 3 ) {
+      nextWritePtr = 0;
+    }
+    
+    if ( nextWritePtr != readPtr ) {
+      writePtr = nextWritePtr;
+    }
+    #endif
+    
+    
+    uint8_t* curFB;
+    #ifdef TRIPLEFB
+    curFB = ( (uint8_t*) fbFull ) + ( writePtr * 96 * 64 );
+    #else
+    curFB = ( (uint8_t*) fbFull );
+    #endif
     
     // Start from scratch.
-    memset( fbFull, 0, DWIDTH * DHEIGHT );
+    memset( curFB, 0, DWIDTH * DHEIGHT );
     
     // Draw players.
     drawRectangle( PADDLE1X, p1y, PADDLEW, PADDLEH );
     drawRectangle( PADDLE2X, p2y, PADDLEW, PADDLEH );
     drawRectangle( bx, by, BALLW, BALLW );
     
-    // Transform full frameBuffer.
+    // Draw middle line. If available with a lighter shade.
+    drawVertLine( DWIDTH / 2, 0, DHEIGHT, 1 );
+    
+    #ifndef TRIPLEFB
+    // Wait for VBLANK.
+    while ( !frameDone ) {
+      tight_loop_contents();
+    }
+    
+    #else
+    
+    while ( ( time_us_64() - frameStart ) < frameTimeUS ) {
+      tight_loop_contents();
+    }    
+    #endif
+    
+    frameDone = 0;
+    
+  }
+}
+
+void __not_in_flash_func( handleBuffer )(){
+  // Frame buffer setup.
+  uint8_t* fb = rom + FBOFFSET;
+  
+  while ( 1 ) {
+    
+    #ifdef TRIPLEFB
+    // Advance read pointer?
+    if ( frameBlendCnt == 0 ) {
+      uint32_t nextReadPtr = readPtr + 1;
+      if ( nextReadPtr == 3 ) {
+        nextReadPtr = 0;
+      }
+      
+      if ( nextReadPtr != writePtr ) {
+        readPtr = nextReadPtr;
+      }
+    }
+    #endif
+    
+    uint8_t* curFB;
+    #ifdef TRIPLEFB
+    curFB = ( (uint8_t*) fbFull ) + ( readPtr * 96 * 64 );
+    #else
+    curFB = ( (uint8_t*) fbFull );
+    #endif
+    
+    // Transform the FB.
     for ( unsigned int y = 0; y < 8; ++y ) {
       for ( unsigned int x = 0; x < 96; ++x ) {
         unsigned tmp = 0;
         for ( unsigned int i = 0; i < 8; ++i ) {
-          tmp |= ( fbFull[ x + y * 96 * 8 + i * 96 ] & 1 ) << i;
+          
+          unsigned px = curFB[ x + y * 96 * 8 + i * 96 ];
+          
+          if ( px > frameBlendCnt ) {
+            px = 1;
+          } else {
+            px = 0;
+          }
+          
+          tmp |= px << i;
         }
         
         fb[ x + y * 96 ] = tmp;
       }
     }
     
-    // The cart sends the current keys directly after copying the frame buffer.
-    // We can use that for syncing.
+    if ( frameBlendCnt == FRAMEBLEND ) {
+      frameBlendCnt = 0;
+      frameDone = 1;
+    
+      
+    } else {
+      ++frameBlendCnt;
+    }
     
     uint32_t addrData;
     while ( 1 ) {
-      if ( !pio_sm_is_rx_fifo_empty( wrPIO, sm_we ) ) {
+      if ( !pio_sm_is_rx_fifo_empty( pioWE_g, sm_we_g ) ) {
         // Got a write. Right lower address?
-        keys = pio_sm_get( wrPIO, sm_we );
-        addrData = pio_sm_get( wrPIO, sm_we_addr );
+        pmKeys = pio_sm_get( pioWE_g, sm_we_g );
+        addrData = pio_sm_get( pioWE_g, sm_we_addr_g );
         
         if ( addrData == 0x000 ) {
           // Fitting lower address.
@@ -221,7 +393,6 @@ void __not_in_flash_func( fbApp )( PIO wrPIO, uint sm_we, uint sm_we_addr ) {
         
       }
     }
-    
   }
 }
 
@@ -338,9 +509,17 @@ void __not_in_flash_func( doPIOStuff() ) {
   uint sm_we_addr = pio_claim_unused_sm( pioWE, false );
   uint offset_we_addr = pio_add_program( pioWE, &write_check_addr_program );
   write_check_addr_program_init( pioWE, sm_we_addr, offset_we_addr, A0A10, WE );
+  
+  // Store the PIO variables related for write-handling global.
+  pioWE_g = pioWE;
+  sm_we_g = sm_we;
+  sm_we_addr_g = sm_we_addr;
 
-  // Execute the code which handles the framebuffer.
-  fbApp( pioWE, sm_we, sm_we_addr );
+  // Handle frame buffer copying.
+  multicore_launch_core1( handleBuffer );
+  
+  // Start actual application.
+  doPongify( pioWE, sm_we, sm_we_addr );
 }
 
 int main() {

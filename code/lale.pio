@@ -34,11 +34,11 @@ mov x, osr
 // Latch the lower 10 adress bits.
 in pins, 10
 
-// Get the higher 10 bits.
-in x, 10
+// Get the higher 5 bits.
+in x, 5
 
 // ...and the array base
-in y, 12
+in y, 17
 
 // Push it.
 push
