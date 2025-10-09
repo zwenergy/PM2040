@@ -1,10 +1,32 @@
-#define MULTICART
+// Multiple defines to select which firmware mode.
+// MULTICART includes the multi ROM menu as the first loaded ROM
+// Maximum ROM size for the MULTICART FW is currently 512 kB
+//#define MULTICART
+
+// EEPROM_RESTORE includes the EEPROM save/restore program as the 
+// to be launched ROM file and handles EEPROM saves to the RP2040 Flash
+// and loading from there.
+//#define EEPROM_RESTORE
+
+// When defining EEPROM_RESTORE and MULTICART, the EEPROM_RESTORE-specific
+// functions are included and started, when the EEPROM_RESTORE program
+// launched from the multi ROM menu is recognized.
+// This makes only sense for PM2040 with larger memory like 16 MB,
+// as otherwise the complete Flash memory (including the backups) will
+// be overwritten when the multi ROM file will flashed onto.
 
 #include "pico/stdlib.h"
 
-#ifndef MULTICART
+#if defined(EEPROM_RESTORE) && !defined(MULTICART)
+#include "eeprom_manager.h"
+
+#elif !defined(MULTICART)
 #include "rom.h"
+
 #else
+#define ROMSLOTS 2
+// 20 ROM slots only for the larger variant.
+//#define ROMSLOTS 20
 #include "multirom.h"
 #include "multimenu.h"
 // For 16 MB Flash IC
@@ -17,22 +39,48 @@
 
 #include "hardware/pio.h"
 #include "hardware/dma.h"
+#include "hardware/sync.h"
 
 #include "oe.pio.h"
 #include "pushData.pio.h"
 #include "hale.pio.h"
 
-#ifdef MULTICART
+#if defined(MULTICART) || defined(EEPROM_RESTORE)
+#include "lale_32k.pio.h"
 #include "writecheck.pio.h"
 #include "writecheck_addr.pio.h"
-#include "lale_menu.pio.h"
-#include "lale_512k.pio.h"
 
 #define DELAY 100000
-#define ROMSIZE 524288
 
 #else
 #include "lale.pio.h"
+#endif
+
+#if defined EEPROM_RESTORE
+#include "hardware/flash.h"
+#endif
+
+#if defined MULTICART
+#include "lale_512k.pio.h"
+#define ROMSIZE 524288
+#endif
+
+#if defined(MULTICART) && defined(EEPROM_RESTORE)
+#include <string.h>
+#endif
+
+// EEPROM_RESTORE defines.
+#ifdef EEPROM_RESTORE
+// Number of EEPROM backup slots
+#define EEPROM_SLOTS 3
+// Size of a single EEPROM backup
+#define EEPROM_SIZE 8192
+// Address of the first EEPROM backup
+#define FLASHADDR ( PICO_FLASH_SIZE_BYTES - ( EEPROM_SIZE * EEPROM_SLOTS ) )
+// Offset of the currently loaded EEPROM backup on the RP2040
+#define EEPROM_OFFSET 0x4000
+// Size of the EEPROM manager program.
+#define EEPROM_MANAGER_SIZE 32768
 #endif
 
 
@@ -69,6 +117,45 @@
 #define OE 14
 #define CS 15
 
+#ifdef EEPROM_RESTORE
+void __not_in_flash_func( loadEEPROM )( uint32_t slot, uint8_t* buffer ) {
+  // Offset addr after the RAM (XIP_BASE).
+  uint8_t* addr = (uint8_t*) ( XIP_BASE + FLASHADDR + ( slot * EEPROM_SIZE ) );
+  
+  // Go over byte-wise.
+  // TODO: This is stupid, just read out 32b chunks.
+  for ( int i = 0; i < EEPROM_SIZE; ++i ) {
+    buffer[ i ] = *addr;
+    ++addr;
+  }
+}
+
+// Write the EEPROM buffer to Flash.
+void __not_in_flash_func( writeEEPROM )( uint32_t slot, uint8_t* buffer ) {
+  // Save RAM to Flash.
+  // Not interrupt-safe.
+  uint32_t ints = save_and_disable_interrupts();
+  
+  uint32_t curEEPROMAddr = FLASHADDR + ( slot * EEPROM_SIZE );
+
+  // Bytes to be erased have to be a multiple of the sector size.
+  // EEPROM is 8192 bytes large.
+  // A flash sector is 4096 bytes.
+  // So it's naturally a multiple.
+  flash_range_erase( curEEPROMAddr, EEPROM_SIZE );
+
+  // And write.
+  // Bytes to be erased have to be a multiple of the page size.
+  // EEPROM is 8192 bytes large.
+  // A flash page size is 256 bytes.
+  // So it's naturally a multiple.
+  flash_range_program( curEEPROMAddr, buffer, EEPROM_SIZE );
+  
+  // Restore interrupts.
+  restore_interrupts ( ints );
+}
+#endif
+
 void __not_in_flash_func( doPIOStuff() ) {
   // Set up PIOs.
   
@@ -87,10 +174,11 @@ void __not_in_flash_func( doPIOStuff() ) {
   
   // LALE latching.
   uint sm_lale = pio_claim_unused_sm( pio, false );
-  #ifndef MULTICART
-  uint offset_lale = pio_add_program( pio, &lale_latch_program );
+  
+  #if defined(MULTICART) || defined(EEPROM_RESTORE)
+  uint offset_lale = pio_add_program( pio, &lale_latch_32k_program );
   #else
-  uint offset_lale = pio_add_program( pio, &lale_latch_menu_program );
+  uint offset_lale = pio_add_program( pio, &lale_latch_program );
   #endif
   
   
@@ -163,24 +251,30 @@ void __not_in_flash_func( doPIOStuff() ) {
   oe_toggle_program_init( pio, sm_oe, offset_oe, D0, OE );
   push_databits_program_init( pio, sm_pushData, offset_pushData, D0 );
   hale_latch_program_init( pio, sm_hale, offset_hale, A0A10, HALE );
-  #ifndef MULTICART
-  lale_latch_program_init( pio, sm_lale, offset_lale, A0A10, LALE );
+  
+  #if defined(MULTICART) || defined(EEPROM_RESTORE)
+  lale_latch_32k_program_init( pio, sm_lale, offset_lale, A0A10, LALE );
   #else
-  lale_latch_menu_program_init( pio, sm_lale, offset_lale, A0A10, LALE );
+  lale_latch_program_init( pio, sm_lale, offset_lale, A0A10, LALE );
   #endif
   
   // Push the base address of the array.
-  #ifndef MULTICART
-  pio_sm_put( pio, sm_lale, ( ( (uint32_t) rom + XIP_NOCACHE_OFFSET ) ) >> 20 );
+  #if defined MULTICART
+  pio_sm_put( pio, sm_lale, ( ( (uint32_t) rom_menu ) ) >> 15 );
+  
+  #elif defined EEPROM_RESTORE
+  pio_sm_put( pio, sm_lale, ( ( (uint32_t) rom ) ) >> 15 ); // Adjust LALE address stuf.
+  
   #else
-  pio_sm_put( pio, sm_lale, ( ( (uint32_t) rom_menu + XIP_NOCACHE_OFFSET ) ) >> 14 );
+  pio_sm_put( pio, sm_lale, ( ( (uint32_t) rom + XIP_NOCACHE_OFFSET ) ) >> 20 );
+  
   #endif
   
   // Start the DMA channels.
   dma_start_channel_mask( 1u << hale_dma );
   dma_start_channel_mask( 1u << lale_addr_dma );
 
-  #ifdef MULTICART
+  #if defined(MULTICART) || defined(EEPROM_RESTORE)
   // Wait a bit.
   for ( uint32_t cnt = 0; cnt < DELAY; ++cnt ) {
     tight_loop_contents();
@@ -197,9 +291,13 @@ void __not_in_flash_func( doPIOStuff() ) {
   uint offset_we_addr = pio_add_program( pioWE, &write_check_addr_program );
   write_check_addr_program_init( pioWE, sm_we_addr, offset_we_addr, A0A10, WE );
   
-  // Wait till proper write.
+  #endif
+  
+  // MULTICART-specific handling.
   uint32_t writeData;
   uint32_t addrData;
+  #ifdef MULTICART
+  // Wait till proper write.
   while ( 1 ) {
     if ( !pio_sm_is_rx_fifo_empty( pioWE, sm_we ) ) {
       // Got a write. Right lower address?
@@ -217,24 +315,113 @@ void __not_in_flash_func( doPIOStuff() ) {
   uint32_t romAddress = (uint32_t) rom;
   romAddress += (ROMSIZE * writeData);
   
+  // EEPROM manager program?
+  uint32_t eepromManager = 0;
+  
+  #ifdef EEPROM_RESTORE
+  uint32_t gameCodeOffset = ( ROMSIZE * writeData ) + 0x21AC;
+  if ( rom[ gameCodeOffset ] == 'E' &&
+       rom[ gameCodeOffset + 1 ] == 'E' &&
+       rom[ gameCodeOffset + 2 ] == 'P' &&
+       rom[ gameCodeOffset + 3 ] == 'M' ) {
+    eepromManager = 1;
+  }
+  #endif
+  
+  
   // Stop the LALE SM.
   pio_sm_set_enabled( pio, sm_lale, false );
   
-  // Remove the old program.
-  pio_remove_program( pio, &lale_latch_menu_program, offset_lale );
+  if ( !eepromManager ) {
+    // Remove the old program.
+    pio_remove_program( pio, &lale_latch_32k_program, offset_lale );
+    
+    // Add the new program at the same offset.
+    pio_add_program_at_offset( pio, &lale_latch_program, offset_lale );
+    
+    // Restart the LALE SM.
+    lale_latch_program_init( pio, sm_lale, offset_lale, A0A10, LALE );
+    
+    // Add the new ROM address.
+    pio_sm_put( pio, sm_lale, ( ( romAddress + XIP_NOCACHE_OFFSET ) ) >> 19 );
+      
+    // Stop WE checking SMs.
+    pio_sm_set_enabled( pioWE, sm_we, false );
+    pio_sm_set_enabled( pioWE, sm_we_addr, false );
+    
+  } else {
+    // Load the EEPROM manger into the memory which was used for the
+    // multi ROM menu.
+    memcpy( rom_menu, (uint8_t*) romAddress, EEPROM_MANAGER_SIZE );
+    
+    // Restart the LALE SM. Re-use the old SM.
+    lale_latch_32k_program_init( pio, sm_lale, offset_lale, A0A10, LALE );
+    
+    // Add the new ROM address.
+    pio_sm_put( pio, sm_lale, ( ( (uint32_t) rom_menu ) ) >> 15 );
+    
+    // Leave the write checking SMs on.
+  }
+  #endif
   
-  // Add the new program at the same offset.
-  pio_add_program_at_offset( pio, &lale_latch_program, offset_lale );
+  #ifdef EEPROM_RESTORE
+  // Load EEPROM data.
+  uint32_t curEEPROMSlot = 0;
+  uint32_t eepromPtr = 0;
+  uint8_t* eeprom;
   
-  // Restart the LALE SM.
-  lale_latch_program_init( pio, sm_lale, offset_lale, A0A10, LALE );
+  #ifdef MULTICART
+  eeprom = rom_menu + EEPROM_OFFSET;
+  #else
+  eeprom = rom + EEPROM_OFFSET;
+  #endif
+
+  loadEEPROM( curEEPROMSlot, eeprom );
   
-  // Add the new ROM address.
-  pio_sm_put( pio, sm_lale, ( ( romAddress + XIP_NOCACHE_OFFSET ) ) >> 19 );
+  // Wait for writes.
+  while ( 1 ) {
+    if ( !pio_sm_is_rx_fifo_empty( pioWE, sm_we ) ) {
+      // Got a write.
+      writeData = pio_sm_get( pioWE, sm_we );
+      addrData = pio_sm_get( pioWE, sm_we_addr );
+      
+      switch ( addrData ) {
+        
+        // Set the EEPROM slot.
+        case 0b1111000001:
+          curEEPROMSlot = writeData;
+          // Reload the EEPROM.
+          loadEEPROM( curEEPROMSlot, eeprom );
+          break;
+          
+        // Set the lower EEPROM addr bytes.
+        case 0b1111000010:
+          eepromPtr = ( eepromPtr & 0xFFFFFF00 ) | writeData;
+          break;
+          
+        // Set the higher EEPROM addr bytes.
+        case 0b1111000011:
+          eepromPtr = ( eepromPtr & 0xFFFF00FF ) | ( writeData << 8 );
+          break;
+          
+        // Write to EEPROM buffer.
+        case 0b1111000100:
+          eeprom[ eepromPtr ] = writeData;
+          break;
+          
+        // Transfer EEPROM buffer to Flash.
+        case 0b1111000111:
+          writeEEPROM( curEEPROMSlot, eeprom );
+          break;
+          
+        // Unhandled case.
+        default:
+          break;
+      }
+      
+    }
+  }
   
-  // Stop WE checking SMs.
-  pio_sm_set_enabled( pioWE, sm_we, false );
-  pio_sm_set_enabled( pioWE, sm_we_addr, false );
   #endif
 
   
