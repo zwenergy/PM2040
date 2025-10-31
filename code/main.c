@@ -18,6 +18,9 @@
 
 #include "pico/multicore.h"
 
+// For fast float.
+#include "pico/float.h"
+
 #include "oe.pio.h"
 #include "pushData.pio.h"
 #include "hale.pio.h"
@@ -25,6 +28,9 @@
 
 #include "writecheck.pio.h"
 #include "writecheck_addr.pio.h"
+
+// For audio.
+#include <math.h>
 
 // Packed framebuffer (which is copied from the cart)
 #define FBOFFSET 0x4000
@@ -37,6 +43,13 @@
 
 // Rumble off.
 #define RUMBLEOFF *( (volatile uint8_t*) RUMBLE ) = 0
+
+// Audio (5b)
+#define AUDIO *( (volatile uint8_t*) ( rom + 0x4301 ) )
+#define AUDIOSTEPS 32
+
+// Audio volume. (2 bit, leading bits have to be 0).
+#define AUDIO_VOL *( (volatile uint8_t*) ( rom + 0x4302 ) )
 
 // FRAMEBLEND defines the number of colors and the number of frames
 // blended together to create these colors.
@@ -82,6 +95,18 @@ uint8_t fbFull[ FBDEPTH ][ 96 * 64];
 
 // Rumble frames.
 #define RUMBLEFRAMES 5
+
+// Use audio?
+#define USEAUDIO
+
+// Sound effect period (in us)
+#define SOUND_US 250
+
+// Sample period (us).
+#define SAMPLE_PER_US 30
+
+// Sound effect frames.
+#define SOUNDFRAMES 5
 
 // We don't use the Flash cache.
 #define XIP_CACHE   0x10000000
@@ -165,6 +190,34 @@ void __not_in_flash_func( drawVertLine )( unsigned int x, unsigned int y,
   }
 }
 
+// Sound effect function.
+const float soundDiv = ( (float) SOUND_US ) / ( 2.0f * M_PI );
+uint32_t soundFrames = 0;
+bool __not_in_flash_func( soundEffect )( repeating_timer_t* t ) {
+  
+  if ( soundFrames ) {
+    AUDIO_VOL = 3;
+    
+    uint32_t curTime = time_us_32();
+    
+    // Do modulo.
+    float p = ( curTime % (uint32_t) SOUND_US );
+    
+    // Connvert to radian.
+    p = p / soundDiv;
+    
+    // Get the current sine value.
+    p = sinf( p );
+    
+    // Convert to 5b audio (unsigned samples).
+    uint8_t sample = (uint8_t) ( ( ( p + 1.0f ) / 2.0f ) * ( (float) ( AUDIOSTEPS - 1 ) ) );
+    
+    // Set audio sample.
+    AUDIO = sample;
+  }
+  return true;
+}
+
 uint32_t rumbleFrames = 0;
 // Actual program running and filling the FB.
 void __not_in_flash_func( doPongify )() {
@@ -193,6 +246,13 @@ void __not_in_flash_func( doPongify )() {
     } else {
       RUMBLEOFF;
     }
+    
+    #ifdef USEAUDIO
+    // Sound?
+    if ( soundFrames > 0 ) {
+      --soundFrames;
+    }
+    #endif
     
     // Scan keys.
     if ( pmKeys & 0b00001000 ) {
@@ -233,6 +293,11 @@ void __not_in_flash_func( doPongify )() {
       
     } else {
       bspeedY = -bspeedY;
+      
+      #ifdef USEAUDIO
+      // Do sound effect.
+      soundFrames = SOUNDFRAMES;
+      #endif
     }
     
     if ( potX <= PADDLE1X + PADDLEW && bspeedX < 0 ) {
@@ -243,6 +308,11 @@ void __not_in_flash_func( doPongify )() {
         // Turn on rumble for one frame.
         RUMBLEON;
         rumbleFrames = RUMBLEFRAMES;
+        
+        #ifdef USEAUDIO
+        // Do sound effect.
+        soundFrames = SOUNDFRAMES;
+        #endif
         
       } else if ( potX <= PADDLEW ) {
         bx = BALLX;
@@ -260,6 +330,11 @@ void __not_in_flash_func( doPongify )() {
         // Turn on rumble for one frame.
         RUMBLEON;
         rumbleFrames = RUMBLEFRAMES;
+        
+        #ifdef USEAUDIO
+        // Do sound effect.
+        soundFrames = SOUNDFRAMES;
+        #endif
         
       } else if ( potX >= PADDLE2X + PADDLEW ) {
         bx = BALLX;
@@ -517,6 +592,12 @@ void __not_in_flash_func( doPIOStuff() ) {
 
   // Handle frame buffer copying.
   multicore_launch_core1( handleBuffer );
+  
+  #ifdef USEAUDIO
+  // Do audio callback.
+  static repeating_timer_t t;
+  add_repeating_timer_us( SAMPLE_PER_US, soundEffect, 0, &t );
+  #endif
   
   // Start actual application.
   doPongify( pioWE, sm_we, sm_we_addr );
