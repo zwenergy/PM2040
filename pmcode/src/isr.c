@@ -47,8 +47,6 @@ void _interrupt(0) shake_irq(void) {
 }
 void _interrupt(0) key_power_irq(void) {
   IRQ_ACT3 = IRQ3_KEYPOWER;
-  if ( KEY_PAD & KEY_POWER ) return;
-  _int(0x48);
 }
 void _interrupt(0) key_right_irq(void) {
   _slp();

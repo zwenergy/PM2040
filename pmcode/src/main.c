@@ -10,9 +10,11 @@
 #define FB 0x1000
 #define TXKEYS 0x5000
 
-
 #define RUMBLEON  IO_DATA = ( IO_DATA | 0x10 )
 #define RUMBLEOFF IO_DATA = ( IO_DATA & 0xEF )
+
+// Nr of frames to turn off.
+#define PWRCNTOFF 150
 
 void doGfx( void ) {  
   // Copy.
@@ -271,6 +273,7 @@ looppage7:
 int main(void)
 {
   uint8_t keys;
+  uint8_t pwrCnt = 0;
   
   // Key interrupts priority
   PRI_KEY(0x03);
@@ -346,6 +349,19 @@ waitsyncloop1:
     // Send keys.
     keys = ~KEY_PAD;
     *( (uint8_t *) TXKEYS ) = keys;
+    
+    // Power button?
+    if ( keys & KEY_POWER ) {
+      ++pwrCnt;
+      
+      if ( pwrCnt >= PWRCNTOFF ) {
+        // Turn off.
+        _int(0x48);
+      }
+      
+    } else {
+      pwrCnt = 0;
+    }
     
     // Get rumble.
     if ( *( (uint8_t *) RPRUMBLE ) ) {
