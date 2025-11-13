@@ -7,12 +7,13 @@ The RP2040 acts as the ROM chip of the cart.
 In order to load a game onto the cartridge, you first have a "convert" a ROM to a UF2 file.
 
 ### Using the Online Patcher
-You can use the online patcher tool [](https://zwenergy.github.io/PM2040ROMPatch/) to patch in a ROM (or even 2 ROMs when using the "2 in 1" firmware) into the ROM-less base UF2 firmware (**note:** pick the PM2040_BASE.uf file for the single ROM FW and the PM2040_BASE_MULTI.uf2 for the "2 in 1" FW):
+You can use the online patcher tool [](https://zwenergy.github.io/PM2040ROMPatch/) to patch in a ROM (or even 2 ROMs when using the "2 in 1" firmware. Or 20 ROMs when using a flash cart with 16 MB Flash) into the ROM-less base UF2 firmware (**note:** pick the PM2040_BASE.uf file for the single ROM FW and the PM2040_BASE_MULTI_2SLOTS.uf2 for the "2 in 1" FW (...or PM2040_BASE_MULTI_20SLOTS.uf2 for the "20 in 1" FW):
 * [Single ROM patcher](https://zwenergy.github.io/PM2040ROMPatch/)
 * [2 in 1 ROM patcher](https://zwenergy.github.io/PM2040ROMPatchMulti/index_multi_2slots.html)
+* [2ß in 1 ROM patcher](https://zwenergy.github.io/PM2040ROMPatchMulti/index_multi_20slots.html)
 
 You can find the latest ROM-less base UF2 firmwares in the releases tab.
-Maximum ROM file size is currently 1048576 bytes (1 MB) for the single ROM FW and 524288 bytes per ROM for the "2 in 1" FW.
+Maximum ROM file size is currently 1048576 bytes (1 MB) for the single ROM FW and 524288 bytes per ROM for the multi ROM FW.
 
 ### Building a FW from Scratch
 
