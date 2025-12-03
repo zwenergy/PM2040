@@ -1,0 +1,329 @@
+<html>
+<head>
+<title>UF2 Multi-ROM Patcher for PM2040</title>
+<h1>UF2 Multi-ROM Patcher for PM2040</h1>
+</head>
+<body>
+  <p>
+  <label for="file">Multi-ROM UF2 File: </label>
+  <input type="file" id="file" />
+  </p>
+  <div id="mainpart">
+  </div>
+  
+  <p>
+  <input type="checkbox" name="doRomPatching" value="doPatching" id="doRomPatching" checked>
+  <label for="doRomPatching">Attempt to apply sleep patches?*</label><br>
+  </p>
+  <p>
+  <button id="read-file">Patch</button>
+  </p>
+  
+  <p><i>Yes, web design is my passion. Please refrain from contacting me to do work as a front-end web designer, my schedule is filled up 🫠.</i></p>
+  
+  <br><i>*(Many commercial games will not shut the game completely off when pressing the power button, but will try to return to the same point when turning back on - which will crash when using the multi ROM FW. Thanks to zoranc for the patches.)</i>
+
+<script>
+var ENTRIES = 2
+window.onload = function(){
+  var divEl = document.getElementById( "mainpart" );
+  let htmlCont = ""
+  for ( let i = 0; i < ENTRIES; ++i ) {
+    let curROMFile = '<p><label for="romfile' + i.toString() + '">ROM File ' + i.toString() + ': </label>';
+    curROMFile += '<input type="file" id="romfile' + i.toString() + '" />';
+    curROMFile += '<label for="romLabel' + i.toString() + '">Slot Label ' + i.toString();
+    curROMFile += ': </label><input type="text" id="romLabel' + i.toString() + '">';
+    
+    htmlCont += curROMFile;
+  }
+  divEl.innerHTML = htmlCont;
+}
+
+function lendian32( arr, base ) {    
+  return ( arr[ base ] + ( arr[ base + 1 ] * 256 ) + ( arr[ base + 2 ] * 65536 ) + ( arr[ base + 3 ] * 16777216 ) );
+}
+
+function saveByteArray( filename, data) {
+  var blob = new Blob([data], {type: "application/octet-stream"});
+  var link = document.createElement('a');
+  link.href = window.URL.createObjectURL(blob);
+  var fileName = filename;
+  link.download = filename;
+  link.click();
+};
+  
+function patchArea( uf2bytearray, uf2Offset, patchArray, len ) {
+  const uf2chunk = 512;
+  const dataoffset = 32;
+  const addroffset = 12;
+  const datasizeoffset = 16;
+  
+  var uf2array = new Uint8Array( uf2bytearray );
+  
+  // Data for patching.
+  const gameCodeOffset = 0x21AC;
+  
+  // Patches.
+  const sleepPatchData = {
+  // Game Code [ address, old val, new val ]
+    "MTAJ" : [ 0x2A40, 0x42, 0x48 ],
+    "MRCJ" : [ 0x2673, 0x42, 0x48 ],
+    "MSDJ" : [ 0x2A88, 0x42, 0x48 ],
+    "MBRJ" : [ 0x419A, 0x42, 0x48 ],
+    "MTAE" : [ 0x2673, 0x42, 0x48 ],
+    "MRCE" : [ 0x2673, 0x42, 0x48 ],
+    "MSDE" : [ 0x2A88, 0x42, 0x48 ],
+    "MBRE" : [ 0x419A, 0x42, 0x48 ],
+    "MSTP" : [ 0x4B18, 0x42, 0x48 ], 
+    "MSTJ" : [ 0x4AE3, 0x42, 0x48 ],
+    "MACD" : [ 0x4CB7, 0x42, 0x48 ],
+    "MACE" : [ 0x4CB7, 0x42, 0x48 ],
+    "MACF" : [ 0x4CB7, 0x42, 0x48 ],
+    "MACJ" : [ 0x4CB7, 0x42, 0x48 ],
+    "MLTE" : [ 0x4B18, 0x42, 0x48 ],
+    "MLTJ" : [ 0x4B18, 0x42, 0x48 ]
+  }
+    
+  // Attempt sleep patching?
+  let doSleepPatching = document.querySelector("#doRomPatching" ).checked;
+  if ( doSleepPatching ) {
+    console.log( "Attempt to apply sleep patch." )
+    // Check for sleep patches.
+    var curGameCode = ""
+    for ( var byteCnt = 0; byteCnt < 4; ++byteCnt ) {
+      curGameCode += ( String.fromCharCode( patchArray[ gameCodeOffset + byteCnt ] ) );
+    }
+    
+    console.log( "Game code: " + curGameCode );
+    
+    if ( curGameCode in sleepPatchData ) {
+      console.log( "Patch data found!" )
+      
+      // Do patching in.
+      if ( romarray[ sleepPatchData[ curGameCode ][ 0 ] ] == sleepPatchData[ curGameCode ][ 1 ] ) {
+        // Old value fits.
+        console.log(  "Old value fits. Do patching" );
+        patchArray[ sleepPatchData[ curGameCode ][ 0 ] ] = sleepPatchData[ curGameCode ][ 2 ];
+      }
+    }
+  }
+  
+  
+  // Start patching. Go over each chunk.
+  for ( let i = 0; i < uf2array.length; i += uf2chunk ) {
+    // Get data size
+    var datSize = lendian32( uf2array, i + datasizeoffset );
+    var baseAddr = lendian32( uf2array, i + addroffset );
+    
+    // Contains ROM data?
+    if ( ( uf2Offset >= baseAddr && uf2Offset < baseAddr + datSize ) || // ROM start inside chunk.
+         ( uf2Offset + len > uf2Offset && uf2Offset + len < baseAddr + datSize ) || // ROM end inside chunk.
+         ( uf2Offset < baseAddr && uf2Offset + len > baseAddr + datSize ) ) { // ROM spans over chunk.
+    
+      // This chunk contains ROM data.
+      // Go over data of chunk.
+      for ( let datInd = dataoffset; datInd < dataoffset + datSize; datInd++ ) {
+        // Calc addr.
+        var curAddr = datInd - dataoffset + baseAddr;
+        // Patching byte?
+        if ( curAddr >= uf2Offset && curAddr < uf2Offset + len ) {
+          var romByteAddr = curAddr - uf2Offset;
+          // Patch it.
+          uf2array[ i + datInd ] = patchArray[ romByteAddr ];
+        }
+      }
+      
+    }
+    
+  }
+
+}
+
+function injectROMs( uf2bytearray, ROMStorage ) {
+  var uf2array = new Uint8Array( uf2bytearray );
+  
+  // First, we care about the ROMs.
+  // Start with the ROM Offset.
+  const uf2chunk = 512;
+  const dataoffset = 32;
+  const addroffset = 12;
+  const datasizeoffset = 16;
+  
+  const maxLabelSize = 20;
+  const labelPlaceholder = "SLOT ";
+  
+  console.log( "inject roms" );
+  
+  const ROMSize = 524288;
+  
+  var foundStart = 0;
+  var ROMaddr = 0;
+  
+  for ( let i = 0; i < uf2array.length; i += uf2chunk ) {
+    // Get data size
+    var datSize = lendian32( uf2array, i + datasizeoffset );
+    
+    // Go over the data.
+    for ( let datInd = dataoffset; datInd < dataoffset + datSize; datInd++ ) {
+      if ( String.fromCharCode( uf2array[ i + datInd ] ) == 'R' &&
+        String.fromCharCode( uf2array[ i + datInd + 1 ] ) == 'O' &&
+        String.fromCharCode( uf2array[ i + datInd + 2 ] ) == 'M' &&
+        String.fromCharCode( uf2array[ i + datInd + 3 ] ) == 'S' &&
+        String.fromCharCode( uf2array[ i + datInd + 4 ] ) == 'T' &&
+        String.fromCharCode( uf2array[ i + datInd + 5 ] ) == 'A' &&
+        String.fromCharCode( uf2array[ i + datInd + 6 ] ) == 'R' &&
+        String.fromCharCode( uf2array[ i + datInd + 7 ] ) == 'T' ) {
+          
+        // Get ROM base addr.
+        var chunkBase = lendian32( uf2array, i + addroffset );
+        ROMaddr = chunkBase + datInd - dataoffset;
+    
+        console.log( "FOUND ROMSTART" );
+        console.log( ROMaddr );
+        foundStart = 1;
+        break;
+      }
+    }
+  }
+  
+  if ( foundStart == 0 ) {
+    console.log( "did not find" );
+    return;
+  }
+  
+  // Now go over all ROMs.
+  for ( let i = 0; i < ENTRIES; ++i ) {
+    if ( ROMStorage[ i ] ) {
+      let curROMOffset = ROMSize * i + ROMaddr;
+      
+      romarray = new Uint8Array( ROMStorage[ i ] )
+      
+      // Start patching. Go over each chunk.
+      romLen = romarray.length;
+      patchArea( uf2bytearray, curROMOffset, romarray, romLen );
+    }
+  }
+  
+  // And now the labels. Search for the base label.
+  let labelBaseAddr = 0;
+  for ( let i = 0; i < uf2array.length; i += uf2chunk ) {
+    // Get data size
+    var datSize = lendian32( uf2array, i + datasizeoffset );
+    
+    // Go over the data.
+    for ( let datInd = dataoffset; datInd < dataoffset + datSize; datInd++ ) {
+      if ( String.fromCharCode( uf2array[ i + datInd ] ) == 'S' &&
+        String.fromCharCode( uf2array[ i + datInd + 1 ] ) == 'L' &&
+        String.fromCharCode( uf2array[ i + datInd + 2 ] ) == 'O' &&
+        String.fromCharCode( uf2array[ i + datInd + 3 ] ) == 'T' &&
+        String.fromCharCode( uf2array[ i + datInd + 4 ] ) == ' ' &&
+        String.fromCharCode( uf2array[ i + datInd + 5 ] ) == '1' ) {
+          
+        // Get ROM base addr.
+        var chunkBase = lendian32( uf2array, i + addroffset );
+        labelBaseAddr = chunkBase + datInd - dataoffset;
+    
+        console.log( "FOUND GAME LABEL START" );
+        console.log( labelBaseAddr );
+        foundStart = 1;
+        break;
+      }
+    }
+  }
+  
+  // Build replacement.
+  let labels = [];
+  let emptyLabel = "EMPTY SLOT ";
+  for ( let i = 0; i < ENTRIES; ++i ) {
+    if ( ROMStorage[ i ] ) {
+      // Get the label.
+      let curLabel = document.querySelector("#romLabel" + i.toString() ).value;
+      console.log( "cur label len: " + curLabel.length.toString() )
+      
+      for ( let j = 0; j < maxLabelSize; j++ ) {
+        if ( j >= curLabel.length ) {
+          labels.push( Math.min( 255, " ".charCodeAt( 0 ) ) );
+        } else {
+          labels.push( Math.min( 255, curLabel.charCodeAt( j ) ) );
+        }
+      }
+      
+    } else {
+      for ( let j = 0; j < maxLabelSize; j++ ) {
+        labels.push( Math.min( 255, emptyLabel.charCodeAt( j ) ) );
+      }
+    }
+    
+    // Add zero byte.
+    labels.push( 0 );
+  }
+  
+  // Create byte array.
+  labelByteArray = new Uint8Array( labels );
+  patchArea( uf2bytearray, labelBaseAddr, labelByteArray, labels.length );
+
+  
+  // Save the patched file.
+  saveByteArray( "PM2040_PATCHED.uf2", uf2bytearray );
+}
+
+document.querySelector("#read-file").addEventListener('click', function() {
+  // no file selected to read
+  if(document.querySelector("#file").value == '') {
+    console.log('No UF2 file selected');
+    return;
+  }
+  
+  // Get number of ROMs selected.
+  var nrAddRoms = 0;
+  var nrReadRoms = 0;
+  var ROMArray = [];
+  for ( let i = 0; i < ENTRIES; ++i ) {
+    fileSelName = "romfile" + i.toString();
+    if(document.querySelector("#" + fileSelName ).value != '') {
+      nrAddRoms += 1;
+      ROMArray.push( "" );
+    }
+  }
+  
+  // And now read them.
+  for ( let i = 0; i < ENTRIES; ++i ) {
+    fileSelName = "romfile" + i.toString();
+    if(document.querySelector("#" + fileSelName ).value != '') {      
+      // Create file reader.
+      let romfile = document.querySelector("#" + fileSelName ).files[0];
+      var romreader = new FileReader();
+      
+      romreader.onload = function(e) {
+        ROMArray[ i ] = e.target.result;
+        nrReadRoms += 1;
+        console.log( "read rom." );
+        
+        if ( nrReadRoms == nrAddRoms ) {
+          console.log( "Read all ROMs!" );
+          
+          // Read the UF2 file.
+          let uf2file = document.querySelector("#file").files[0];
+          var uf2reader = new FileReader();
+          uf2reader.onload = function(e) {
+            var uf2bytearray = e.target.result;
+            
+            // Do the actual processing.
+            injectROMs( uf2bytearray, ROMArray );
+          }
+          
+          uf2reader.readAsArrayBuffer(uf2file);
+          
+        }
+      }
+      
+      romreader.readAsArrayBuffer(romfile);
+    }
+  }
+  
+  console.log( "Added Roms: " + nrAddRoms.toString() )
+})
+
+</script>
+</body>
+</html>
