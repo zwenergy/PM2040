@@ -1,12 +1,12 @@
 // Multiple defines to select which firmware mode.
 // MULTICART includes the multi ROM menu as the first loaded ROM
 // Maximum ROM size for the MULTICART FW is currently 512 kB
-//#define MULTICART
+#define MULTICART
 
 // EEPROM_RESTORE includes the EEPROM save/restore program as the 
 // to be launched ROM file and handles EEPROM saves to the RP2040 Flash
 // and loading from there.
-//#define EEPROM_RESTORE
+#define EEPROM_RESTORE
 
 // When defining EEPROM_RESTORE and MULTICART, the EEPROM_RESTORE-specific
 // functions are included and started, when the EEPROM_RESTORE program
@@ -24,13 +24,13 @@
 #include "rom.h"
 
 #else
-#define ROMSLOTS 2
+//#define ROMSLOTS 2
 // 20 ROM slots only for the larger variant.
-//#define ROMSLOTS 20
+#define ROMSLOTS 20
 #include "multirom.h"
-#include "multimenu.h"
+//#include "multimenu.h"
 // For 16 MB Flash IC
-//#include "multimenu_20slots.h"
+#include "multimenu_20slots.h"
 #endif
 
 #include "hardware/clocks.h"
@@ -65,8 +65,19 @@
 #define ROMSIZE 524288
 #endif
 
-#if defined(MULTICART) && defined(EEPROM_RESTORE)
+
+#if defined(EEPROM_RESTORE)
 #include <string.h>
+
+// In this case also include USB-related libraries.
+#include "hardware/watchdog.h"
+#include "bsp/board.h"
+#include "tusb_config.h"
+
+// And bootsel-button.
+#include "hardware/structs/ioqspi.h"
+#include "hardware/structs/sio.h"
+#include "pico/time.h"
 #endif
 
 // EEPROM_RESTORE defines.
@@ -81,6 +92,9 @@
 #define EEPROM_OFFSET 0x4000
 // Size of the EEPROM manager program.
 #define EEPROM_MANAGER_SIZE 32768
+
+#define FLASH_CS_PIN 1
+
 #endif
 
 
@@ -116,6 +130,137 @@
 #define WE 13
 #define OE 14
 #define CS 15
+
+#if defined(EEPROM_RESTORE)
+// Define EEPROM USB + rewrite stuff.
+
+// Time to restart after USB rewrite.
+#define EJECTTIME_MS 500
+
+// Time to start USB mode.
+#define USBMODE_MS 3000
+
+extern uint32_t fullUSBWriteDone;
+
+void __not_in_flash_func( writeEEPROMToFlash )( uint8_t* eepromBuff, 
+  uint32_t flashAddr, uint32_t eepromSize ) {
+  // Not interrupt-safe.
+  uint32_t ints = save_and_disable_interrupts();
+
+  flash_range_erase( flashAddr, eepromSize );
+  flash_range_program( flashAddr, eepromBuff, eepromSize );
+  
+  // Restore interrupts.
+  restore_interrupts ( ints );
+}
+
+void softwareReset()
+{
+    watchdog_enable( 1, 1 );
+    while( 1 );
+}
+
+// USB-related callback functions.
+
+void tud_mount_cb(void)
+{
+  
+}
+
+// Invoked when device is unmounted
+void tud_umount_cb(void)
+{
+  
+}
+
+// Invoked when usb bus is suspended
+// remote_wakeup_en : if host allow us  to perform remote wakeup
+// Within 7ms, device must draw an average of current less than 2.5 mA from bus
+void tud_suspend_cb(bool remote_wakeup_en)
+{
+  (void) remote_wakeup_en;
+}
+
+// Invoked when usb bus is resumed
+void tud_resume_cb(void)
+{
+  
+}
+
+void __not_in_flash_func( enterUSBMode )() {
+  // Start USB-related tasks.
+  board_init();
+  tusb_init();
+  
+  while ( 1 ) {
+    tud_task();
+    
+    // In case a full rewrite happened, we restart the RP2040 to get back
+    if ( fullUSBWriteDone && 
+         ( to_ms_since_boot( get_absolute_time() ) - fullUSBWriteDone > EJECTTIME_MS ) ) {
+      softwareReset();
+    }
+  }
+}
+
+// Very funny function to get the state of the bootsel button.
+// Needs to be in RAM.
+uint32_t __not_in_flash_func( getBootSelButton )() {
+  // Not interrupt-safe.
+  uint32_t ints = save_and_disable_interrupts();
+  
+  // High-Z to Flash CS
+  hw_write_masked( &ioqspi_hw->io[ FLASH_CS_PIN ].ctrl,
+    GPIO_OVERRIDE_LOW << IO_QSPI_GPIO_QSPI_SS_CTRL_OEOVER_LSB,
+    IO_QSPI_GPIO_QSPI_SS_CTRL_OEOVER_BITS );
+    
+  // Sleep function is in Flash (which is not working now), so we just
+  // count up a bit.
+  for ( volatile int32_t i = 0; i < 3000; ++i );
+  
+  // Read out the button state.
+  uint32_t b = !( sio_hw->gpio_hi_in & ( 1u << FLASH_CS_PIN ) );
+
+  // Enable the CS pin again.
+  hw_write_masked( &ioqspi_hw->io[ FLASH_CS_PIN ].ctrl,
+    GPIO_OVERRIDE_NORMAL << IO_QSPI_GPIO_QSPI_SS_CTRL_OEOVER_LSB,
+    IO_QSPI_GPIO_QSPI_SS_CTRL_OEOVER_BITS );
+  
+  // Restore interrupts.
+  restore_interrupts ( ints );
+  
+  return b;
+}
+
+// Keeps the timestamp in ms since the button is pressed, 0 if not pressed.
+uint32_t pressedSince = 0;
+// Keeps the timestamp in ms since the last button input.
+uint32_t lastButtonRelease = 0;
+
+// Check for button push length and start USB mode possibly.
+void __not_in_flash_func( handleButton )() {
+  // Check if active
+  uint32_t btn = getBootSelButton();
+  // Get time.
+  uint32_t curTime = to_ms_since_boot( get_absolute_time() );
+  
+  if ( btn ) {
+    // Newly pressed?
+    if ( !pressedSince ) {
+      pressedSince = curTime;
+    } else {
+      if ( curTime - pressedSince > USBMODE_MS ) {
+        enterUSBMode();
+      }
+      
+    }
+    
+  } else {
+    // Set to 0.
+    pressedSince = 0;
+  }
+}
+#endif
 
 #ifdef EEPROM_RESTORE
 void __not_in_flash_func( loadEEPROM )( uint32_t slot, uint8_t* buffer ) {
@@ -310,6 +455,13 @@ void __not_in_flash_func( doPIOStuff() ) {
       }
       
     }
+    
+    #ifdef EEPROM_RESTORE
+    // In case of a multicart with EEPROM_RESTORE functionality,
+    // we also bake in the USB drive support. For this, the BOOTSEL
+    // button can be hold after plugging via USB.
+    handleButton();
+    #endif
   }
   
   uint32_t romAddress = (uint32_t) rom;
@@ -326,7 +478,7 @@ void __not_in_flash_func( doPIOStuff() ) {
        rom[ gameCodeOffset + 3 ] == 'M' ) {
     eepromManager = 1;
   }
-  #endif
+  #endif // EEPROM_RESTORE
   
   
   // Stop the LALE SM.
@@ -362,7 +514,7 @@ void __not_in_flash_func( doPIOStuff() ) {
     
     // Leave the write checking SMs on.
   }
-  #endif
+  #endif // MULTICART
   
   #ifdef EEPROM_RESTORE
   // Load EEPROM data.
@@ -420,9 +572,17 @@ void __not_in_flash_func( doPIOStuff() ) {
       }
       
     }
+    
+    #if !defined( MULTICART )
+    // In case of a regular cart FW with EEPROM restore functionality,
+    // we do the button handling directly here as no menu is started
+    // before.
+    handleButton();
+    #endif
+    
   }
   
-  #endif
+  #endif // EEPROM_RESTORE
 
   
   // Do nothing.
