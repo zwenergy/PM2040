@@ -12,12 +12,19 @@
   </div>
   
   <p>
+  <input type="checkbox" name="doRomPatching" value="doPatching" id="doRomPatching" checked>
+  <label for="doRomPatching">Attempt to apply sleep patches?*</label><br>
+  </p>
+  <p>
   <button id="read-file">Patch</button>
   </p>
   
   <p><i>Yes, web design is my passion. Please refrain from contacting me to do work as a front-end web designer, my schedule is filled up 🫠.</i></p>
+  
+  <br><i>*(Many commercial games will not shut the game completely off when pressing the power button, but will try to return to the same point when turning back on - which will crash when using the multi ROM FW. Thanks to zoranc for the patches.)</i>
+
 <script>
-var ENTRIES = 2
+var ENTRIES = 20
 window.onload = function(){
   var divEl = document.getElementById( "mainpart" );
   let htmlCont = ""
@@ -52,6 +59,55 @@ function patchArea( uf2bytearray, uf2Offset, patchArray, len ) {
   const datasizeoffset = 16;
   
   var uf2array = new Uint8Array( uf2bytearray );
+  
+  // Data for patching.
+  const gameCodeOffset = 0x21AC;
+  
+  // Patches.
+  const sleepPatchData = {
+  // Game Code [ address, old val, new val ]
+    "MTAJ" : [ 0x2A40, 0x42, 0x48 ],
+    "MRCJ" : [ 0x2673, 0x42, 0x48 ],
+    "MSDJ" : [ 0x2A88, 0x42, 0x48 ],
+    "MBRJ" : [ 0x419A, 0x42, 0x48 ],
+    "MTAE" : [ 0x2673, 0x42, 0x48 ],
+    "MRCE" : [ 0x2673, 0x42, 0x48 ],
+    "MSDE" : [ 0x2A88, 0x42, 0x48 ],
+    "MBRE" : [ 0x419A, 0x42, 0x48 ],
+    "MSTP" : [ 0x4B18, 0x42, 0x48 ], 
+    "MSTJ" : [ 0x4AE3, 0x42, 0x48 ],
+    "MACD" : [ 0x4CB7, 0x42, 0x48 ],
+    "MACE" : [ 0x4CB7, 0x42, 0x48 ],
+    "MACF" : [ 0x4CB7, 0x42, 0x48 ],
+    "MACJ" : [ 0x4CB7, 0x42, 0x48 ],
+    "MLTE" : [ 0x4B18, 0x42, 0x48 ],
+    "MLTJ" : [ 0x4B18, 0x42, 0x48 ]
+  }
+    
+  // Attempt sleep patching?
+  let doSleepPatching = document.querySelector("#doRomPatching" ).checked;
+  if ( doSleepPatching ) {
+    console.log( "Attempt to apply sleep patch." )
+    // Check for sleep patches.
+    var curGameCode = ""
+    for ( var byteCnt = 0; byteCnt < 4; ++byteCnt ) {
+      curGameCode += ( String.fromCharCode( patchArray[ gameCodeOffset + byteCnt ] ) );
+    }
+    
+    console.log( "Game code: " + curGameCode );
+    
+    if ( curGameCode in sleepPatchData ) {
+      console.log( "Patch data found!" )
+      
+      // Do patching in.
+      if ( romarray[ sleepPatchData[ curGameCode ][ 0 ] ] == sleepPatchData[ curGameCode ][ 1 ] ) {
+        // Old value fits.
+        console.log(  "Old value fits. Do patching" );
+        patchArray[ sleepPatchData[ curGameCode ][ 0 ] ] = sleepPatchData[ curGameCode ][ 2 ];
+      }
+    }
+  }
+  
   
   // Start patching. Go over each chunk.
   for ( let i = 0; i < uf2array.length; i += uf2chunk ) {
