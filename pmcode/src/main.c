@@ -10,270 +10,19 @@
 #define FB 0x1000
 #define TXKEYS 0x5000
 
-#define RUMBLEON  IO_DATA = ( IO_DATA | 0x10 )
-#define RUMBLEOFF IO_DATA = ( IO_DATA & 0xEF )
 
 // Nr of frames to turn off.
 #define PWRCNTOFF 150
 
-void doGfx( void ) {  
-  // Copy.
-  #pragma asm
-  ; Set page 0 and hi + low nibble.
-  ld ep, #00h
-  ld b, #0b0h
-  ld [020feh], b
-  
-  ld b, #010h
-  ld [020feh], b
-  
-  ld b, #000h
-  ld [020feh], b
-  
-  ; Load addresses.
-  ld a, #000h
-  ld b, #040h
-  ld ix, ba
-  
-  ld a, #0ffh
-  ld b, #020h
-  ld iy, ba
-  
-  ; Get audio volume
-  ld b, [04302h]
-  ; Set it.
-  ld [02071h], b
-  
-looppage0:
-  ; Get audio.
-  ld b, [04301h]
-  ; Set pivot (low).
-  ld [0204ch], b
-  
-  ; load FB data.
-  ld [iy], [ix]
-  inc ix
-  ld [iy], [ix]
-  inc ix
-  ld [iy], [ix]
-  inc ix
-  ld [iy], [ix]
-  inc ix
-  
-  cp ix, #04060h
-  jrs nz, looppage0
+#define RUMBLEON  IO_DATA = ( IO_DATA | 0x10 )
+#define RUMBLEOFF IO_DATA = ( IO_DATA & 0xEF )
 
-  ; Set page 1.
-  ld b, #0b1h
-  ld [020feh], b
-  
-  ld b, #010h
-  ld [020feh], b
-  
-  ld b, #000h
-  ld [020feh], b
-  
-looppage1:
-  ; Get audio.
-  ld b, [04301h]
-  ; Set pivot (low).
-  ld [0204ch], b
-  
-  ; load FB data.
-  ld [iy], [ix]
-  inc ix
-  ld [iy], [ix]
-  inc ix
-  ld [iy], [ix]
-  inc ix
-  ld [iy], [ix]
-  inc ix
-  
-  cp ix, #040c0h
-  jrs nz, looppage1
 
-; Set page 2.
-  ld b, #0b2h
-  ld [020feh], b
-  
-  ld b, #010h
-  ld [020feh], b
-  
-  ld b, #000h
-  ld [020feh], b
-
-looppage2:
-  ; Get audio.
-  ld b, [04301h]
-  ; Set pivot (low).
-  ld [0204ch], b
-  
-  ; load FB data.
-  ld [iy], [ix]
-  inc ix
-  ld [iy], [ix]
-  inc ix
-  ld [iy], [ix]
-  inc ix
-  ld [iy], [ix]
-  inc ix
-  
-  cp ix, #04120h
-  jrs nz, looppage2
-
-  ; Set page 3.
-  ld b, #0b3h
-  ld [020feh], b
-  
-  ld b, #010h
-  ld [020feh], b
-  
-  ld b, #000h
-  ld [020feh], b
-
-looppage3:
-  ; Get audio.
-  ld b, [04301h]
-  ; Set pivot (low).
-  ld [0204ch], b
-  
-  ; load FB data.
-  ld [iy], [ix]
-  inc ix
-  ld [iy], [ix]
-  inc ix
-  ld [iy], [ix]
-  inc ix
-  ld [iy], [ix]
-  inc ix
-  
-  cp ix, #04180h
-  jrs nz, looppage3
-  
-  ; Set page 4.
-  ld b, #0b4h
-  ld [020feh], b
-  
-  ld b, #010h
-  ld [020feh], b
-  
-  ld b, #000h
-  ld [020feh], b
-  
-looppage4:
-  ; Get audio.
-  ld b, [04301h]
-  ; Set pivot (low).
-  ld [0204ch], b
-  
-  ; load FB data.
-  ld [iy], [ix]
-  inc ix
-  ld [iy], [ix]
-  inc ix
-  ld [iy], [ix]
-  inc ix
-  ld [iy], [ix]
-  inc ix
-  
-  cp ix, #041e0h
-  jrs nz, looppage4
-  
-  ; Set page 5.
-  ld b, #0b5h
-  ld [020feh], b
-  
-  ld b, #010h
-  ld [020feh], b
-  
-  ld b, #000h
-  ld [020feh], b
-
-looppage5:
-  ; Get audio.
-  ld b, [04301h]
-  ; Set pivot (low).
-  ld [0204ch], b
-  
-  ; load FB data.
-  ld [iy], [ix]
-  inc ix
-  ld [iy], [ix]
-  inc ix
-  ld [iy], [ix]
-  inc ix
-  ld [iy], [ix]
-  inc ix
-  
-  cp ix, #04240h
-  jrs nz, looppage5
-  
-  
-  ; Set page 6.
-  ld b, #0b6h
-  ld [020feh], b
-  
-  ld b, #010h
-  ld [020feh], b
-  
-  ld b, #000h
-  ld [020feh], b
-
-looppage6:
-  ; Get audio.
-  ld b, [04301h]
-  ; Set pivot (low).
-  ld [0204ch], b
-
-  ; load FB data.
-  ld [iy], [ix]
-  inc ix
-  ld [iy], [ix]
-  inc ix
-  ld [iy], [ix]
-  inc ix
-  ld [iy], [ix]
-  inc ix
-  
-  cp ix, #042a0h
-  jrs nz, looppage6
-  
-  ; Set page 7.
-  ld b, #0b7h
-  ld [020feh], b
-  
-  ld b, #010h
-  ld [020feh], b
-  
-  ld b, #000h
-  ld [020feh], b
-  
-looppage7:
-  ; Get audio.
-  ld b, [04301h]
-  ; Set pivot (low).
-  ld [0204ch], b
-  
-  ; load FB data.
-  ld [iy], [ix]
-  inc ix
-  ld [iy], [ix]
-  inc ix
-  ld [iy], [ix]
-  inc ix
-  ld [iy], [ix]
-  inc ix
-  
-  cp ix, #04300h
-  jrs nz, looppage7
-  
-  #pragma endasm
-}
+uint8_t pwrCnt = 0;
 
 int main(void)
 {
   uint8_t keys;
-  uint8_t pwrCnt = 0;
   
   // Key interrupts priority
   PRI_KEY(0x03);
@@ -289,8 +38,6 @@ int main(void)
   // Audio stuff.
   
   // Timer 3 preset.
-  // 4b audio.
-  //TMR3_PRE = 0x000F;
   // 5b audio.
   TMR3_PRE = 0x0020;
   
@@ -315,36 +62,104 @@ int main(void)
   // Unmute.
   AUD_CTRL = 0;
   
+  // Set once the LCD low nibble.
+  LCD_CTRL = 0;
+  
   // Don't do anything beside copying frame buffer and audio.
   while ( 1 ) {
       
-    // Wait for VBLANK.
     #pragma asm
-    ld a, #08ah
-    ld b, #020h
-    ld ix, ba
-waitsyncloop:
-    ; Get audio.
-    ld b, [04301h]
-    ; Set pivot (low).
-    ld [0204ch], b
+CPY MACRO 
+  ld [BR:0FFh], [HL]
+  inc HL
+  ENDM
   
-    ld a, [ix]
-    cp a, #010h
-    jrs nz, waitsyncloop
+; Copy pixels and get new audio sample (address stored in IX)
+CPY_12 MACRO
+  ld [BR:04Ch], [IX]
+  CPY
+  CPY
+  CPY
+  CPY
+  ld [BR:04Ch], [IX]
+  CPY
+  CPY
+  CPY
+  CPY
+  ld [BR:04Ch], [IX]
+  CPY
+  CPY
+  CPY
+  CPY
+  ENDM
 
-waitsyncloop1:
-    ; Get audio.
-    ld b, [04301h]
-    ; Set pivot (low).
-    ld [0204ch], b
-
-    ld a, [ix]
-    cp a, #010h
-    jrs z, waitsyncloop1
+CPY_ROW MACRO
+  CPY_12
+  CPY_12
+  CPY_12
+  CPY_12
+  CPY_12
+  CPY_12
+  CPY_12
+  CPY_12
+  ENDM
+  
+  push all
+  
+  ; zero all additional registers.
+  ld xp, #00h
+  ld yp, #00h
+  ld ep, #00h
+  
+  ; BR to 20.
+  ld br, #020h
+  
+  ; load audio sample address.
+  ld h, #043h
+  ld l, #001h
+  ld ix, hl
+  
+waitsyncloop:
+; check vsync + load audio sample.
+  ld [BR:04Ch], [IX]
+  cp [BR:08Ah], #50
+  jrs nz, waitsyncloop
+  
+  ; load RP FB address.
+  ld h, #040h
+  ld l, #000h
+  
+cpStart:  
+  ; Set high nibble
+  ld [BR:0FEh], #010h
+  
+  ; Set page 0.
+  ld a, #0b0h
+  ld [BR:0FEh], a
+  
+doCopy:
+  CPY_ROW
+  
+  ; check page.
+  cp a, #0b7h
+  jrs z, doneCopy
+  
+  ; increase page.
+  inc a
+  
+  ; set page and high nibble.
+  ld [BR:0FEh], a
+  ld [BR:0FEh], #010h
+  jrl doCopy
+  
+doneCopy:
+  ; Update the audio volume.
+  ld h, #043h
+  ld l, #002h
+  ld [BR:071h], [HL]
+  
+  pop all
     #pragma endasm
-
-    doGfx();
     
     // Send keys.
     keys = ~KEY_PAD;
@@ -355,7 +170,6 @@ waitsyncloop1:
       ++pwrCnt;
       
       if ( pwrCnt >= PWRCNTOFF ) {
-        // Turn off.
         _int(0x48);
       }
       

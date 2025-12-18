@@ -58,6 +58,7 @@
 // etc.
 // The PM display refreshes at roughly 75 Hz, FRAMEBLEND == 1 will reduce
 // this effectively to the half and so on.
+// NOTE: So far only FRAMEBLEND values 0, 1 and 2 are properly implemented.
 #define FRAMEBLEND 1
 volatile unsigned frameBlendCnt = 0;
 
@@ -424,19 +425,40 @@ void __not_in_flash_func( handleBuffer )(){
     curFB = ( (uint8_t*) fbFull );
     #endif
     
+    #if FRAMEBLEND == 2
+    uint32_t colorPattern [4][3] = {
+      { 0, 0, 0 },
+      { 0, 0, 1 },
+      { 0, 1, 1 },
+      { 1, 1, 1 }
+    };
+    #elif FRAMEBLEND == 1
+    uint32_t colorPattern [3][2] = {
+      { 0, 0 },
+      { 0, 1 },
+      { 1, 1 }
+    };
+    #endif
+    
     // Transform the FB.
     for ( unsigned int y = 0; y < 8; ++y ) {
       for ( unsigned int x = 0; x < 96; ++x ) {
         unsigned tmp = 0;
         for ( unsigned int i = 0; i < 8; ++i ) {
           
-          unsigned px = curFB[ x + y * 96 * 8 + i * 96 ];
+          unsigned fbPx = curFB[ x + y * 96 * 8 + i * 96 ];
           
-          if ( px > frameBlendCnt ) {
-            px = 1;
-          } else {
-            px = 0;
+          if ( fbPx > FRAMEBLEND + 1 ) {
+            fbPx = FRAMEBLEND + 1;
           }
+          
+          #if FRAMEBLEND > 0
+          unsigned patCnt = ( x + y + i + frameBlendCnt ) % ( FRAMEBLEND + 1 );
+          unsigned px = colorPattern[ fbPx ][ patCnt ];
+          
+          #else
+          unsigned px =  fbPx;
+          #endif
           
           tmp |= px << i;
         }
