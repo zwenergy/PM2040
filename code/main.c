@@ -1,4 +1,4 @@
-#define MULTICART
+//#define MULTICART
 
 #include "pico/stdlib.h"
 
@@ -68,6 +68,7 @@
 #define WE 13
 #define OE 14
 #define CS 15
+#define CART_IRQ 26
 
 void __not_in_flash_func( doPIOStuff() ) {
   // Set up PIOs.
@@ -237,10 +238,18 @@ void __not_in_flash_func( doPIOStuff() ) {
   pio_sm_set_enabled( pioWE, sm_we_addr, false );
   #endif
 
+  // Example for the cart irq pin. We simply flip the cart irq signal
+  // every 5 seconds as a very basic timer.
+  gpio_init( CART_IRQ );
+  gpio_set_dir( CART_IRQ, GPIO_OUT );
+  gpio_put( CART_IRQ, 0 );
   
-  // Do nothing.
+  // Do nothing but toggling the cart irq.
   while ( 1 ) {
-    tight_loop_contents();
+    sleep_ms( 5000 );
+    gpio_put( CART_IRQ, 1 );
+    sleep_ms( 5000 );
+    gpio_put( CART_IRQ, 0 );
   }
 }
 

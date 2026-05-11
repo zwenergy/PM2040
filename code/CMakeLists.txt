@@ -32,4 +32,4 @@ pico_add_extra_outputs(${PROJECT})
 
 target_sources(${PROJECT} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/main.c)
 
-target_link_libraries(${PROJECT} pico_stdlib hardware_pio hardware_dma)
+target_link_libraries(${PROJECT} pico_stdlib hardware_pio hardware_dma hardware_adc)
