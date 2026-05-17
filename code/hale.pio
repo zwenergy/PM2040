@@ -14,10 +14,10 @@ jmp waitHALE
 
 latchAddr:
 // Latch address.
-in pins, 10
+in pins, 11
 
 // Padd.
-in null, 22
+in null, 21
 
 // Push it.
 push
@@ -33,13 +33,13 @@ static inline void hale_latch_program_init(PIO pio, uint sm, uint offset, uint a
 
   pio_sm_config c = hale_latch_program_get_default_config( offset );
   // Set address to read.
-  pio_sm_set_consecutive_pindirs(pio, sm, addrPin, 10, false);
+  pio_sm_set_consecutive_pindirs(pio, sm, addrPin, 11, false);
   // Set HALE to read.
   pio_sm_set_consecutive_pindirs(pio, sm, halePin, 1, false);
   
   // Set IN pins
   sm_config_set_in_pins( &c, addrPin );
-  sm_config_set_in_pin_count( &c, 10 );
+  sm_config_set_in_pin_count( &c, 11 );
   
   // Set jmp pin.
   sm_config_set_jmp_pin( &c, halePin );

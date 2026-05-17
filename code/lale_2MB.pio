@@ -1,0 +1,73 @@
+.program lale_latch
+
+// Get the base array address.
+pull block
+
+// Move it to y for later.
+mov y, osr
+
+.wrap_target
+waitLALE:
+// Wait for LALE goes high.
+wait 1 gpio 12
+
+// Make sure no glitch.
+jmp pin glitchFilter
+
+// ...was glitch.
+jmp waitLALE
+
+glitchFilter:
+// Make sure no glitch.
+jmp pin latchAddr
+
+// ...was glitch.
+jmp waitLALE
+
+latchAddr:
+// Pull high adress (..or previous from X)
+pull noblock
+
+// Save for next usage in X
+mov x, osr
+
+// Latch the lower 10 adress bits.
+in pins, 10
+
+// Get the higher 11 bits.
+in x, 11
+
+// ...and the array base
+in y, 11
+
+// Push it.
+push
+
+// Wait for LALE to go low again.
+wait 0 gpio 12
+
+.wrap
+
+
+% c-sdk {
+static inline void lale_latch_program_init(PIO pio, uint sm, uint offset, uint addrPin, uint lalePin ) {
+
+  pio_sm_config c = lale_latch_program_get_default_config( offset );
+  // Set address to read.
+  pio_sm_set_consecutive_pindirs(pio, sm, addrPin, 10, false);
+  // Set LALE to read.
+  pio_sm_set_consecutive_pindirs(pio, sm, lalePin, 1, false);
+  
+  // Set IN pins.
+  sm_config_set_in_pins( &c, addrPin );
+  sm_config_set_in_pin_count( &c, 10 );
+  
+  // Set jmp pin.
+  sm_config_set_jmp_pin( &c, lalePin );
+  
+
+  pio_sm_init( pio, sm, offset, &c );
+  pio_sm_set_enabled( pio, sm, true );
+}
+
+%}

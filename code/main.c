@@ -1,4 +1,5 @@
-#define MULTICART
+//#define MULTICART
+#define MAXROM
 
 #include "pico/stdlib.h"
 
@@ -22,7 +23,7 @@
 #include "pushData.pio.h"
 #include "hale.pio.h"
 
-#ifdef MULTICART
+#if defined(MULTICART)
 #include "writecheck.pio.h"
 #include "writecheck_addr.pio.h"
 #include "lale_menu.pio.h"
@@ -30,6 +31,9 @@
 
 #define DELAY 100000
 #define ROMSIZE 524288
+
+#elif defined(MAXROM)
+#include "lale_2MB.pio.h"
 
 #else
 #include "lale.pio.h"
@@ -170,10 +174,12 @@ void __not_in_flash_func( doPIOStuff() ) {
   #endif
   
   // Push the base address of the array.
-  #ifndef MULTICART
-  pio_sm_put( pio, sm_lale, ( ( (uint32_t) rom + XIP_NOCACHE_OFFSET ) ) >> 20 );
-  #else
+  #if defined(MULTICART)
   pio_sm_put( pio, sm_lale, ( ( (uint32_t) rom_menu + XIP_NOCACHE_OFFSET ) ) >> 14 );
+  #elif defined(MAXROM)
+  pio_sm_put( pio, sm_lale, ( ( (uint32_t) rom + XIP_NOCACHE_OFFSET ) ) >> 21 );
+  #else
+  pio_sm_put( pio, sm_lale, ( ( (uint32_t) rom + XIP_NOCACHE_OFFSET ) ) >> 20 );
   #endif
   
   // Start the DMA channels.
