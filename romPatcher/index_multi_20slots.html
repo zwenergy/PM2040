@@ -10,6 +10,15 @@
   </p>
   <div id="mainpart">
   </div>
+
+  <p>
+  <label for="gkbiosfile">GameKing BIOS (gm218.bin, 512 KB, only needed for GameKing slots): </label>
+  <input type="file" id="gkbiosfile" />
+  </p>
+  <p>
+  <input type="checkbox" name="doGKSleepPatching" value="doPatching" id="doGKSleepPatching" checked>
+  <label for="doGKSleepPatching">Patch out the GameKing BIOS auto-sleep?**</label><br>
+  </p>
   
   <p>
   <input type="checkbox" name="doRomPatching" value="doPatching" id="doRomPatching" checked>
@@ -21,6 +30,8 @@
   
   <p><i>Yes, web design is my passion. Please refrain from contacting me to do work as a front-end web designer, my schedule is filled up 🫠.</i></p>
   
+  <br><i>GameKing slots (GK mini) need the 20 slot firmware with GameKing support. Tick "GameKing" for these slots (done automatically for files not ending in .min). A GameKing ROM larger than 512 KB continues into the following slot(s), which must then be left empty. Hold C while choosing a GameKing game to mute it.</i>
+  <br><i>**(Without the patch the GameKing blanks the screen after about two minutes without input and only wakes up after START is held for about two seconds. Only applied if the BIOS matches.)</i>
   <br><i>*(Many commercial games will not shut the game completely off when pressing the power button, but will try to return to the same point when turning back on - which will crash when using the multi ROM FW. Thanks to zoranc for the patches.)</i>
 
 <script>
@@ -30,13 +41,22 @@ window.onload = function(){
   let htmlCont = ""
   for ( let i = 0; i < ENTRIES; ++i ) {
     let curROMFile = '<p><label for="romfile' + i.toString() + '">ROM File ' + i.toString() + ': </label>';
-    curROMFile += '<input type="file" id="romfile' + i.toString() + '" />';
+    curROMFile += '<input type="file" id="romfile' + i.toString() + '" onchange="autoGK(' + i.toString() + ')" />';
     curROMFile += '<label for="romLabel' + i.toString() + '">Slot Label ' + i.toString();
     curROMFile += ': </label><input type="text" id="romLabel' + i.toString() + '">';
+    curROMFile += '<input type="checkbox" id="romGK' + i.toString() + '"><label for="romGK' + i.toString() + '">GameKing </label>';
     
     htmlCont += curROMFile;
   }
   divEl.innerHTML = htmlCont;
+}
+
+// Tick "GameKing" for anything that is not a Pokemon mini ROM (.min).
+function autoGK( i ) {
+  let f = document.querySelector( "#romfile" + i.toString() ).files[ 0 ];
+  if ( f ) {
+    document.querySelector( "#romGK" + i.toString() ).checked = !f.name.toLowerCase().endsWith( ".min" );
+  }
 }
 
 function lendian32( arr, base ) {    
@@ -52,7 +72,7 @@ function saveByteArray( filename, data) {
   link.click();
 };
   
-function patchArea( uf2bytearray, uf2Offset, patchArray, len ) {
+function patchArea( uf2bytearray, uf2Offset, patchArray, len, isPMROM = true ) {
   const uf2chunk = 512;
   const dataoffset = 32;
   const addroffset = 12;
@@ -66,26 +86,26 @@ function patchArea( uf2bytearray, uf2Offset, patchArray, len ) {
   // Patches.
   const sleepPatchData = {
   // Game Code [ address, old val, new val ]
-    "MTAJ" : [ 0x2A40, 0x42, 0x48 ],
-    "MRCJ" : [ 0x2673, 0x42, 0x48 ],
-    "MSDJ" : [ 0x2A88, 0x42, 0x48 ],
-    "MBRJ" : [ 0x419A, 0x42, 0x48 ],
-    "MTAE" : [ 0x2673, 0x42, 0x48 ],
-    "MRCE" : [ 0x2673, 0x42, 0x48 ],
-    "MSDE" : [ 0x2A88, 0x42, 0x48 ],
-    "MBRE" : [ 0x419A, 0x42, 0x48 ],
-    "MSTP" : [ 0x4B18, 0x42, 0x48 ], 
-    "MSTJ" : [ 0x4AE3, 0x42, 0x48 ],
-    "MACD" : [ 0x4CB7, 0x42, 0x48 ],
-    "MACE" : [ 0x4CB7, 0x42, 0x48 ],
-    "MACF" : [ 0x4CB7, 0x42, 0x48 ],
-    "MACJ" : [ 0x4CB7, 0x42, 0x48 ],
-    "MLTE" : [ 0x4B18, 0x42, 0x48 ],
-    "MLTJ" : [ 0x4B18, 0x42, 0x48 ]
+    "MTAJ" : [ [ 0x2A40, 0x42, 0x48 ] ],
+    "MRCJ" : [ [ 0x2673, 0x42, 0x48 ] ],
+    "MSDJ" : [ [ 0x2A88, 0x42, 0x48 ], [ 0x2B6B, 0x44, 0x48 ] ],
+    "MBRJ" : [ [ 0x419A, 0x42, 0x48 ] ],
+    "MTAE" : [ [ 0x2673, 0x42, 0x48 ] ],
+    "MRCE" : [ [ 0x2673, 0x42, 0x48 ] ],
+    "MSDE" : [ [ 0x2A88, 0x42, 0x48 ], [ 0x2B6B, 0x44, 0x48 ] ],
+    "MBRE" : [ [ 0x419A, 0x42, 0x48 ] ],
+    "MSTP" : [ [ 0x4B18, 0x42, 0x48 ] ], 
+    "MSTJ" : [ [ 0x4AE3, 0x42, 0x48 ] ],
+    "MACD" : [ [ 0x4CB7, 0x42, 0x48 ] ],
+    "MACE" : [ [ 0x4CB7, 0x42, 0x48 ] ],
+    "MACF" : [ [ 0x4CB7, 0x42, 0x48 ] ],
+    "MACJ" : [ [ 0x4CB7, 0x42, 0x48 ] ],
+    "MLTE" : [ [ 0x4B18, 0x42, 0x48 ] ],
+    "MLTJ" : [ [ 0x4B18, 0x42, 0x48 ] ]
   }
     
   // Attempt sleep patching?
-  let doSleepPatching = document.querySelector("#doRomPatching" ).checked;
+  let doSleepPatching = isPMROM && document.querySelector("#doRomPatching" ).checked;
   if ( doSleepPatching ) {
     console.log( "Attempt to apply sleep patch." )
     // Check for sleep patches.
@@ -99,11 +119,14 @@ function patchArea( uf2bytearray, uf2Offset, patchArray, len ) {
     if ( curGameCode in sleepPatchData ) {
       console.log( "Patch data found!" )
       
-      // Do patching in.
-      if ( romarray[ sleepPatchData[ curGameCode ][ 0 ] ] == sleepPatchData[ curGameCode ][ 1 ] ) {
-        // Old value fits.
-        console.log(  "Old value fits. Do patching" );
-        patchArray[ sleepPatchData[ curGameCode ][ 0 ] ] = sleepPatchData[ curGameCode ][ 2 ];
+      // Go over patches.
+      for ( let p = 0; p < sleepPatchData[ curGameCode ].length; ++p ) {
+        // Do patching in.
+        if ( patchArray[ sleepPatchData[ curGameCode ][ p ][ 0 ] ] == sleepPatchData[ curGameCode ][ p ][ 1 ] ) {
+          // Old value fits.
+          console.log(  "Old value fits. Do patching" );
+          patchArray[ sleepPatchData[ curGameCode ][ p ][ 0 ] ] = sleepPatchData[ curGameCode ][ p ][ 2 ];
+        }
       }
     }
   }
@@ -115,10 +138,9 @@ function patchArea( uf2bytearray, uf2Offset, patchArray, len ) {
     var datSize = lendian32( uf2array, i + datasizeoffset );
     var baseAddr = lendian32( uf2array, i + addroffset );
     
-    // Contains ROM data?
-    if ( ( uf2Offset >= baseAddr && uf2Offset < baseAddr + datSize ) || // ROM start inside chunk.
-         ( uf2Offset + len > uf2Offset && uf2Offset + len < baseAddr + datSize ) || // ROM end inside chunk.
-         ( uf2Offset < baseAddr && uf2Offset + len > baseAddr + datSize ) ) { // ROM spans over chunk.
+    // Contains ROM data? (Any overlap. The former check missed the last
+    // chunk of a region ending exactly on a chunk boundary, e.g. a 512 KB ROM.)
+    if ( uf2Offset < baseAddr + datSize && uf2Offset + len > baseAddr ) {
     
       // This chunk contains ROM data.
       // Go over data of chunk.
@@ -139,7 +161,76 @@ function patchArea( uf2bytearray, uf2Offset, patchArray, len ) {
 
 }
 
-function injectROMs( uf2bytearray, ROMStorage ) {
+// ---- GK mini (GameKing) support ----
+const GK_SLOT_TABLE_SIZE = 16 + 20 * 8;
+
+// GameKing BIOS auto-sleep patch [ address, old val, new val ]
+// (same patch sites as the GameKing MiSTer core).
+const gkSleepPatchData = [
+  [ 0x06C0D, 0xD0, 0xEA ],
+  [ 0x06C0E, 0x48, 0xEA ],
+  [ 0x04886, 0xD0, 0x80 ],
+  [ 0x042D7, 0xB2, 0x60 ]
+];
+
+// Find an 8 byte marker in the UF2 payloads. Returns the flash address or 0.
+// The GK storage areas are 4 KB aligned, so only aligned matches count
+// (the same bytes may appear elsewhere in the firmware image).
+function findMarker( uf2array, marker ) {
+  const m = Array.from( marker ).map( c => c.charCodeAt( 0 ) );
+  for ( let i = 0; i < uf2array.length; i += 512 ) {
+    var datSize = lendian32( uf2array, i + 16 );
+    var blockAddr = lendian32( uf2array, i + 12 );
+    for ( let datInd = 32; datInd < 32 + datSize; datInd++ ) {
+      if ( ( ( blockAddr + datInd - 32 ) & 0xFFF ) != 0 )
+        continue;
+      if ( uf2array[ i + datInd ] != m[ 0 ] )
+        continue;
+      let ok = true;
+      for ( let k = 1; k < m.length; k++ ) {
+        if ( uf2array[ i + datInd + k ] != m[ k ] ) { ok = false; break; }
+      }
+      if ( ok )
+        return lendian32( uf2array, i + 12 ) + datInd - 32;
+    }
+  }
+  return 0;
+}
+
+// Works out which slots belong to which GameKing game.
+// Returns { parent: [], error: "" }; parent[ i ] = -1 for PM / empty slots.
+function gkLayout( ROMStorage, GKFlags, ROMSize ) {
+  let parent = [];
+  for ( let i = 0; i < ENTRIES; ++i )
+    parent.push( -1 );
+  for ( let i = 0; i < ENTRIES; ++i ) {
+    if ( !ROMStorage[ i ] )
+      continue;
+    let len = ROMStorage[ i ].byteLength;
+    if ( !GKFlags[ i ] ) {
+      if ( parent[ i ] >= 0 )
+        return { parent: parent, error: "Slot " + i + " is used by the GameKing ROM in slot " + parent[ i ] + "." };
+      if ( len > ROMSize )
+        return { parent: parent, error: "The ROM in slot " + i + " is larger than 512 KB." };
+      continue;
+    }
+    if ( parent[ i ] >= 0 )
+      return { parent: parent, error: "Slot " + i + " is used by the GameKing ROM in slot " + parent[ i ] + "." };
+    if ( len == 0 )
+      return { parent: parent, error: "The ROM in slot " + i + " is empty." };
+    let n = Math.ceil( len / ROMSize );
+    if ( i + n > ENTRIES )
+      return { parent: parent, error: "The GameKing ROM in slot " + i + " does not fit into the remaining slots." };
+    for ( let k = 0; k < n; ++k ) {
+      if ( k > 0 && ROMStorage[ i + k ] )
+        return { parent: parent, error: "Slot " + ( i + k ) + " must stay empty: the GameKing ROM in slot " + i + " continues there." };
+      parent[ i + k ] = i;
+    }
+  }
+  return { parent: parent, error: "" };
+}
+
+function injectROMs( uf2bytearray, ROMStorage, GKFlags = [], GKBios = null ) {
   var uf2array = new Uint8Array( uf2bytearray );
   
   // First, we care about the ROMs.
@@ -190,6 +281,27 @@ function injectROMs( uf2bytearray, ROMStorage ) {
     console.log( "did not find" );
     return;
   }
+
+  // GameKing slots: check everything before touching the UF2.
+  let gk = gkLayout( ROMStorage, GKFlags, ROMSize );
+  if ( gk.error != "" ) {
+    alert( gk.error );
+    return;
+  }
+  let anyGK = gk.parent.some( p => p >= 0 );
+  let gkBiosAddr = 0, gkTableAddr = 0;
+  if ( anyGK ) {
+    gkBiosAddr = findMarker( uf2array, "GKBIOSST" );
+    gkTableAddr = findMarker( uf2array, "GKSLOTTB" );
+    if ( !gkBiosAddr || !gkTableAddr ) {
+      alert( "This UF2 has no GameKing support. Use the 20 slot firmware with GK mini support (a fresh, unpatched file)." );
+      return;
+    }
+    if ( !GKBios || GKBios.byteLength != 524288 ) {
+      alert( "GameKing slots need the GameKing BIOS (gm218.bin, 512 KB)." );
+      return;
+    }
+  }
   
   // Now go over all ROMs.
   for ( let i = 0; i < ENTRIES; ++i ) {
@@ -200,10 +312,43 @@ function injectROMs( uf2bytearray, ROMStorage ) {
       
       // Start patching. Go over each chunk.
       romLen = romarray.length;
-      patchArea( uf2bytearray, curROMOffset, romarray, romLen );
+      patchArea( uf2bytearray, curROMOffset, romarray, romLen, !GKFlags[ i ] );
     }
   }
   
+  // GameKing BIOS and slot table.
+  if ( anyGK ) {
+    let bios = new Uint8Array( GKBios.slice( 0 ) );
+    if ( document.querySelector( "#doGKSleepPatching" ).checked ) {
+      if ( gkSleepPatchData.every( p => bios[ p[ 0 ] ] == p[ 1 ] ) ) {
+        for ( let p of gkSleepPatchData )
+          bios[ p[ 0 ] ] = p[ 2 ];
+        console.log( "GameKing BIOS auto-sleep patched out." );
+      } else {
+        console.log( "GameKing BIOS not recognised, auto-sleep patch skipped." );
+      }
+    }
+    patchArea( uf2bytearray, gkBiosAddr, bios, bios.length, false );
+
+    // Table: magic (kept), version, BIOS valid, then per slot
+    // { uint32 GameKing ROM size (0 = PM game), uint8 parent slot, 3x pad }.
+    let table = new Uint8Array( GK_SLOT_TABLE_SIZE );
+    table.set( Array.from( "GKSLOTTB" ).map( c => c.charCodeAt( 0 ) ) );
+    table[ 8 ] = 1;
+    table[ 9 ] = 1;
+    for ( let i = 0; i < ENTRIES; ++i ) {
+      let p = gk.parent[ i ];
+      let size = ( p == i ) ? ROMStorage[ i ].byteLength : 0;
+      let b = 16 + i * 8;
+      table[ b ] = size & 0xFF;
+      table[ b + 1 ] = ( size >>> 8 ) & 0xFF;
+      table[ b + 2 ] = ( size >>> 16 ) & 0xFF;
+      table[ b + 3 ] = ( size >>> 24 ) & 0xFF;
+      table[ b + 4 ] = ( p >= 0 ) ? p : i;
+    }
+    patchArea( uf2bytearray, gkTableAddr, table, table.length, false );
+  }
+
   // And now the labels. Search for the base label.
   let labelBaseAddr = 0;
   for ( let i = 0; i < uf2array.length; i += uf2chunk ) {
@@ -235,7 +380,13 @@ function injectROMs( uf2bytearray, ROMStorage ) {
   let labels = [];
   let emptyLabel = "EMPTY SLOT ";
   for ( let i = 0; i < ENTRIES; ++i ) {
-    if ( ROMStorage[ i ] ) {
+    if ( gk.parent[ i ] >= 0 && gk.parent[ i ] != i ) {
+      // Continuation of a large GameKing ROM.
+      let contLabel = "  (PART OF ABOVE)";
+      for ( let j = 0; j < maxLabelSize; j++ ) {
+        labels.push( j < contLabel.length ? contLabel.charCodeAt( j ) : " ".charCodeAt( 0 ) );
+      }
+    } else if ( ROMStorage[ i ] ) {
       // Get the label.
       let curLabel = document.querySelector("#romLabel" + i.toString() ).value;
       console.log( "cur label len: " + curLabel.length.toString() )
@@ -309,7 +460,19 @@ document.querySelector("#read-file").addEventListener('click', function() {
             var uf2bytearray = e.target.result;
             
             // Do the actual processing.
-            injectROMs( uf2bytearray, ROMArray );
+            let GKFlags = [];
+            for ( let k = 0; k < ENTRIES; ++k )
+              GKFlags.push( document.querySelector( "#romGK" + k.toString() ).checked );
+            let biosIn = document.querySelector( "#gkbiosfile" );
+            if ( biosIn.value != '' ) {
+              let biosreader = new FileReader();
+              biosreader.onload = function( eb ) {
+                injectROMs( uf2bytearray, ROMArray, GKFlags, eb.target.result );
+              }
+              biosreader.readAsArrayBuffer( biosIn.files[ 0 ] );
+            } else {
+              injectROMs( uf2bytearray, ROMArray, GKFlags, null );
+            }
           }
           
           uf2reader.readAsArrayBuffer(uf2file);

@@ -6,9 +6,20 @@
 #include "rom.h"
 #else
 #include "multirom.h"
+#ifdef PM2040_SLOTS20
+// 16 MB Flash IC, 20 slots (set by the CMake option PM2040_GK_MULTI20).
+#include "multimenu_20slots.h"
+#else
 #include "multimenu.h"
 // For 16 MB Flash IC
 //#include "multimenu_20slots.h"
+#endif
+#endif
+
+#ifdef PM2040_GKMINI
+// GameKing games in menu slots, run by the GK mini emulator.
+#include "gk_mode.h"
+#include "lale_32k.pio.h"
 #endif
 
 #include "hardware/clocks.h"
@@ -70,6 +81,13 @@
 #define CS 15
 
 void __not_in_flash_func( doPIOStuff() ) {
+  #ifdef PM2040_GKMINI
+  // Copy the GK mini PM program and the slot table to RAM now (< 1 ms).
+  // Later the flash bus belongs to the menu DMA, and after the selection
+  // the switch to a GameKing slot must be instant.
+  gkmode_prepare();
+  #endif
+
   // Set up PIOs.
   
   // OE toggle program.
@@ -214,6 +232,23 @@ void __not_in_flash_func( doPIOStuff() ) {
     }
   }
   
+  #ifdef PM2040_GKMINI
+  // GameKing slot? Then serve the GK mini PM program from RAM and start
+  // the emulator instead of mapping the slot.
+  uint32_t gkSize;
+  int gkSlot = gkmode_slot_lookup( writeData, &gkSize );
+  if ( gkSlot >= 0 ) {
+    pio_sm_set_enabled( pio, sm_lale, false );
+    pio_remove_program( pio, &lale_latch_menu_program, offset_lale );
+    pio_add_program_at_offset( pio, &lale_latch_32k_program, offset_lale );
+    lale_latch_32k_program_init( pio, sm_lale, offset_lale, A0A10, LALE );
+    pio_sm_put( pio, sm_lale, ( (uint32_t) gkmode_pm_rom() ) >> 15 );
+
+    // The write check SMs keep running: they carry the PM key state.
+    gkmode_run( pioWE, sm_we, sm_we_addr, rom + ROMSIZE * gkSlot, gkSize );
+  }
+  #endif
+
   uint32_t romAddress = (uint32_t) rom;
   romAddress += (ROMSIZE * writeData);
   

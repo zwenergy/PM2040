@@ -74,7 +74,7 @@ SECTIONS
         /* bit of a hack right now to exclude all floating point and time critical (e.g. memset, memcpy) code from
          * FLASH ... we will include any thing excluded here in .data below by default */
         *(.init)
-        *(EXCLUDE_FILE(*libgcc.a: *libc.a:*lib_a-mem*.o *libm.a:) .text*)
+        *(EXCLUDE_FILE(*libgcc.a: *libc.a:*lib_a-mem*.o *libm.a: *gk.c.o*) .text*)
         *(.fini)
         /* Pull all c'tors into .text */
         *crtbegin.o(.ctors)
@@ -115,7 +115,7 @@ SECTIONS
     } > FLASH
 
     .rodata : {
-        *(EXCLUDE_FILE(*libgcc.a: *libc.a:*lib_a-mem*.o *libm.a:) .rodata*)
+        *(EXCLUDE_FILE(*libgcc.a: *libc.a:*lib_a-mem*.o *libm.a: *gk.c.o*) .rodata*)
         . = ALIGN(4);
         *(SORT_BY_ALIGNMENT(SORT_BY_NAME(.flashdata*)))
         . = ALIGN(4);
@@ -149,10 +149,37 @@ SECTIONS
         *(.ram_vector_table)
     } > RAM
 
+    /* GK mini buffers, not cleared at boot. Small ones first, filling the
+       space up to the 32 KB boundary needed by the PM program buffer. The
+       emulator core's own .bss is here too; gk_mode.c clears it before use
+       (__gk_bss_start__/__gk_bss_end__). */
+    .gk_noinit ALIGN(4) (NOLOAD): {
+        __gk_bss_start__ = .;
+        *gk.c.o*(.bss .bss.* COMMON)
+        . = ALIGN(4);
+        __gk_bss_end__ = .;
+        *(.gk_noinit.small*)
+        . = ALIGN(32768);
+        *(.gk_noinit.pm*)
+        *(.gk_noinit.big*)
+    } > RAM
+
     .uninitialized_data (NOLOAD): {
         . = ALIGN(4);
         *(.uninitialized_data*)
     } > RAM
+
+    /* GK mini: the emulator core (gk.c) runs from RAM but is NOT copied by
+       crt0 (startup must stay short). gk_mode.c copies it itself once a
+       GameKing slot was chosen. Empty when built without GK support. */
+    .gk_ram : {
+        . = ALIGN(4);
+        __gk_ram_start__ = .;
+        *gk.c.o*(.text* .rodata*)
+        . = ALIGN(4);
+        __gk_ram_end__ = .;
+    } > RAM AT> FLASH
+    __gk_ram_source__ = LOADADDR(.gk_ram);
 
     .data : {
         __data_start__ = .;
@@ -263,6 +290,17 @@ SECTIONS
     .romStorage : {
       . = ALIGN( 2 * 524288 );
       *(.romStorage)
+    } > FLASH
+
+    /* GK mini: PM-side program (copied to RAM when needed), GameKing BIOS
+       and slot table (both filled in by the multi-ROM patcher). */
+    .gk_rpfb : {
+      . = ALIGN( 32768 );
+      KEEP(*(.gk_rpfb))
+    } > FLASH
+    .gkStorage : {
+      . = ALIGN( 4096 );
+      KEEP(*(.gkStorage))
     } > FLASH
 
     .flash_end : {

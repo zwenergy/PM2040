@@ -28,6 +28,17 @@ Maximum ROM file size is currently 1048576 bytes (1 MB) for the single ROM FW an
 4. Connect the RP2040-Zero board to the computer while holding down the BOOT button.
 5. Drag and drop the newly generated .uf2 file onto the RP2040-Zero.
 
+### GameKing Games in the 20 in 1 Menu (GK mini)
+The 20 in 1 firmware can also be built with [GK mini](https://github.com/zwenergy/GK-mini) support, so that Timetop GameKing games can be put into menu slots next to Pokemon mini games.
+When a GameKing slot is chosen, the RP2040 serves the GK mini frame/audio program to the Pokemon mini and runs the GameKing emulator. Pokemon mini slots work exactly as before.
+
+* Build: `cmake .. -DPM2040_GK_MULTI20=ON` and `make` (this also selects the 16 MB linker script, the 20 slot menu and the 20 slot ROM array). Without the option the firmware builds exactly as before.
+* Patch with the [20 in 1 ROM patcher](https://zwenergy.github.io/PM2040ROMPatchMulti/index_multi_20slots.html): tick "GameKing" for GameKing ROMs (done automatically for files not ending in `.min`) and select the GameKing BIOS (`gm218.bin`, 512 KB). A GameKing ROM larger than 512 KB continues into the following slot(s), which have to stay empty; the menu lists them as "(PART OF ABOVE)".
+* Hold C while choosing a GameKing game to mute it. In-game, C is START and the Power button is SELECT.
+* A checkerboard screen after choosing a GameKing slot means no BIOS was patched in.
+
+The patcher stores the BIOS and a slot table in two extra 4 KB aligned flash areas (markers `GKBIOSST` and `GKSLOTTB`, section `.gkStorage`). An unpatched table marks every slot as a Pokemon mini game.
+
 ## Hardware Side
 ### BOM
 | **Reference** | **Value**| **Links**
