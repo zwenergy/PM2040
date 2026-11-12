@@ -10,7 +10,7 @@ In order to load a game onto the cartridge, you first have a "convert" a ROM to 
 You can use the online patcher tool [](https://zwenergy.github.io/PM2040ROMPatch/) to patch in a ROM (or even 2 ROMs when using the "2 in 1" firmware. Or 20 ROMs when using a flash cart with 16 MB Flash) into the ROM-less base UF2 firmware (**note:** pick the PM2040_BASE.uf file for the single ROM FW and the PM2040_BASE_MULTI_2SLOTS.uf2 for the "2 in 1" FW (...or PM2040_BASE_MULTI_20SLOTS.uf2 for the "20 in 1" FW):
 * [Single ROM patcher](https://zwenergy.github.io/PM2040ROMPatch/)
 * [2 in 1 ROM patcher](https://zwenergy.github.io/PM2040ROMPatchMulti/index_multi_2slots.html)
-* [20 in 1 ROM patcher](https://zwenergy.github.io/PM2040ROMPatchMulti/index_multi_20slots.html)
+* [20 in 1 ROM patcher](https://zwenergy.github.io/PM2040ROMPatchMulti/index_multi_20slots_gk.html)
 
 You can find the latest ROM-less base UF2 firmwares in the releases tab.
 Maximum ROM file size is currently 1048576 bytes (1 MB) for the single ROM FW and 524288 bytes per ROM for the multi ROM FW.
@@ -33,7 +33,7 @@ The 20 in 1 firmware can also be built with [GK mini](https://github.com/zwenerg
 When a GameKing slot is chosen, the RP2040 serves the GK mini frame/audio program to the Pokemon mini and runs the GameKing emulator. Pokemon mini slots work exactly as before.
 
 * Build: `cmake .. -DPM2040_GK_MULTI20=ON` and `make` (this also selects the 16 MB linker script, the 20 slot menu and the 20 slot ROM array). Without the option the firmware builds exactly as before.
-* Patch with the [20 in 1 ROM patcher](https://zwenergy.github.io/PM2040ROMPatchMulti/index_multi_20slots.html): tick "GameKing" for GameKing ROMs (done automatically for files not ending in `.min`) and select the GameKing BIOS (`gm218.bin`, 512 KB). A GameKing ROM larger than 512 KB continues into the following slot(s), which have to stay empty; the menu lists them as "(PART OF ABOVE)".
+* Patch with the [20 in 1 ROM patcher](https://zwenergy.github.io/PM2040ROMPatchMulti/index_multi_20slots_gk.html): tick "GameKing" for GameKing ROMs (done automatically for files not ending in `.min`) and select the GameKing BIOS (`gm218.bin`, 512 KB). A GameKing ROM larger than 512 KB continues into the following slot(s), which have to stay empty; the menu lists them as "(PART OF ABOVE)".
 * Hold C while choosing a GameKing game to mute it. In-game, C is START and the Power button is SELECT.
 * A checkerboard screen after choosing a GameKing slot means no BIOS was patched in.
 
